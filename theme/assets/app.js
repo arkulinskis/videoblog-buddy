@@ -517,6 +517,7 @@
     var d = function () { var a = arguments, self = this; clearTimeout(t); t = setTimeout(function () { t = null; fn.apply(self, a); }, ms); };
     d.flush = function () { if (t) { clearTimeout(t); t = null; fn(); } };
     d.pending = function () { return !!t; };
+    d.cancel = function () { clearTimeout(t); t = null; };
     return d;
   };
   VB.isPhone = function () { return window.matchMedia && matchMedia('(max-width: 720px)').matches; };
@@ -568,7 +569,11 @@
     phone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
     tv: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="m8 3 4 4 4-4"/>',
     volume: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>',
-    mute: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="m17 9 5 6M22 9l-5 6"/>'
+    mute: '<path d="M4 9v6h4l5 4V5L8 9z"/><path d="m17 9 5 6M22 9l-5 6"/>',
+    list: '<path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
+    flame: '<path d="M12 3c1 4 5 5.5 5 10a5 5 0 0 1-10 0c0-2.5 1.5-3.5 2-5 .8 1.4 1.6 2 2.5 2-.5-2.5-.2-4.6.5-7z"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
+    calendar2: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'
   };
   Object.keys(ICONS).forEach(function (k) { UI.ICONS[k] = ICONS[k]; });
 
@@ -609,7 +614,9 @@
     var a = VB.kind(kind).aspect, vert = a === '9:16';
     return { v: 1, aspect: a, layout: vert ? 'stack' : (a === '1:1' ? 'crop' : 'pip'), bg: 'red', pad: vert ? 0.03 : 0.05, radius: 14,
       cam: Object.assign({ pos: 'br', size: 0.24, shape: 'circle', border: true, hidden: false }, UI.store.get('rec.cam', {})), zoom: { auto: true, level: 1.7 },
-      transition: 'fade', voice: 1, music: { vol: 0.25, name: '', duck: true }, watermark: '', progress: vert, scenes: [] };
+      transition: 'fade', voice: 1, music: { vol: 0.25, name: '', duck: true, gen: '' }, watermark: '', progress: vert,
+      sfx: { clicks: false, whoosh: false, vol: 0.6 }, voice_fx: 'off',
+      captions: { on: false, style: vert ? 'bold' : 'karaoke', pos: vert ? 'middle' : 'bottom', size: 1, upper: false, color: '#ffde00' }, scenes: [] };
   };
   VB.fullEdit = function (e, kind) {  // fill in anything missing (old or empty edits)
     var d = VB.DEFAULT_EDIT(kind), out = {};
@@ -618,12 +625,14 @@
     out.cam = Object.assign({}, d.cam, e.cam || {});
     out.zoom = Object.assign({}, d.zoom, e.zoom || {});
     out.music = Object.assign({}, d.music, e.music || {});
+    out.sfx = Object.assign({}, d.sfx, e.sfx || {});
+    out.captions = Object.assign({}, d.captions, e.captions || {});
     out.scenes = (e.scenes || []).map(function (s) { return JSON.parse(JSON.stringify(s)); });
     return out;
   };
   VB.sceneId = function () { return 's' + Math.random().toString(36).slice(2, 9); };
   VB.takeScene = function (t) {
-    return { id: VB.sceneId(), type: 'take', take: t.id, 'in': 0, out: +(t.duration || 0).toFixed(2), cuts: [], speed: 1, layout: '', zooms: [], texts: [], mute: false };
+    return { id: VB.sceneId(), type: 'take', take: t.id, 'in': 0, out: +(t.duration || 0).toFixed(2), cuts: [], speed: 1, layout: '', zooms: [], texts: [], boxes: [], mute: false };
   };
   VB.cardScene = function (style, title, sub, color, emoji) {
     return { id: VB.sceneId(), type: 'card', style: style || 'classic', title: title || '', sub: sub || '', dur: 3, color: color || '#cc181e', emoji: emoji || '' };
@@ -1280,10 +1289,16 @@
       });
       if (!segs.length) return;
       var zooms = sc.zooms && sc.zooms.length ? sc.zooms : (edit.zoom && edit.zoom.auto && t.mode !== 'cam' ? VB.autoZooms(t.clicks, edit.zoom.level) : []);
-      out.scenes.push({ sc: sc, i: i, type: 'take', take: t, src: src || null, start: o, dur: so, segs: segs, speed: speed, zooms: zooms });
+      var ps = { sc: sc, i: i, type: 'take', take: t, src: src || null, start: o, dur: so, segs: segs, speed: speed, zooms: zooms };
+      if (t.words && t.words.words && t.words.words.length) {
+        ps.words = VB.keptWords(ps);
+        if (edit.captions && edit.captions.on) ps.cues = VB.cues(ps.words, VB.cueOpts(edit));
+      }
+      out.scenes.push(ps);
       o += so;
     });
     out.outDur = o;
+    out.sfx = VB.sfxEvents ? VB.sfxEvents(out) : [];
     return out;
   };
   VB.locate = function (plan, o) {
@@ -1366,7 +1381,89 @@
     if (radius) { rr(g, D.x, D.y, D.w, D.h, radius); g.clip(); }
     try { g.drawImage(src.img, sx, sy, cw, ch, D.x, D.y, D.w, D.h); } catch (e) { g.fillStyle = '#111'; g.fillRect(D.x, D.y, D.w, D.h); }
     g.restore();
-    return D;
+    return { x: D.x, y: D.y, w: D.w, h: D.h, sx: sx, sy: sy, cw: cw, ch: ch, iw: iw, ih: ih, r: radius };
+  }
+
+  /* ------------------------------------------------------------------ hide / highlight boxes (screen coordinates 0..1) */
+  var tiny = null;
+  function drawBoxes(g, src, map, boxes, t, W, H) {
+    if (!map || !boxes || !boxes.length) return;
+    var m = Math.min(W, H);
+    boxes.forEach(function (b) {
+      if (t < b.s || t > b.e) return;
+      var k = Math.min(VB.ease((t - b.s) / 0.25), VB.ease((b.e - t) / 0.25));
+      var px = b.x * map.iw, py = b.y * map.ih, pw = b.w * map.iw, ph = b.h * map.ih;
+      var x = map.x + (px - map.sx) / map.cw * map.w, y = map.y + (py - map.sy) / map.ch * map.h, w = pw / map.cw * map.w, h = ph / map.ch * map.h;
+      var x0 = Math.max(map.x, x), y0 = Math.max(map.y, y), x1 = Math.min(map.x + map.w, x + w), y1 = Math.min(map.y + map.h, y + h);
+      g.save();
+      if (b.kind === 'blur') {
+        if (x1 - x0 < 1 || y1 - y0 < 1) { g.restore(); return; }
+        // A mosaic hides the area completely the whole time (no fade, so nothing leaks for a frame).
+        if (!tiny) tiny = document.createElement('canvas');
+        var tw = Math.max(3, Math.round((x1 - x0) / Math.max(10, m * 0.018))), th = Math.max(2, Math.round(tw * (y1 - y0) / (x1 - x0)));
+        tiny.width = tw; tiny.height = th;
+        var tg = tiny.getContext('2d');
+        var sx0 = map.sx + (x0 - map.x) / map.w * map.cw, sy0 = map.sy + (y0 - map.y) / map.h * map.ch;
+        try { tg.drawImage(src.img, sx0, sy0, (x1 - x0) / map.w * map.cw, (y1 - y0) / map.h * map.ch, 0, 0, tw, th); } catch (e) { tg.fillStyle = '#777'; tg.fillRect(0, 0, tw, th); }
+        rr(g, x0, y0, x1 - x0, y1 - y0, m * 0.008); g.clip();
+        g.imageSmoothingEnabled = false; g.drawImage(tiny, 0, 0, tw, th, x0, y0, x1 - x0, y1 - y0); g.imageSmoothingEnabled = true;
+        g.fillStyle = 'rgba(120,120,120,.18)'; g.fillRect(x0, y0, x1 - x0, y1 - y0);
+      } else if (b.kind === 'spot') {
+        g.beginPath(); g.rect(map.x, map.y, map.w, map.h); rr(g, x, y, w, h, m * 0.012);
+        g.fillStyle = 'rgba(0,0,0,' + (0.58 * k).toFixed(3) + ')'; g.fill('evenodd');
+        g.globalAlpha = k; rr(g, x, y, w, h, m * 0.012); g.lineWidth = Math.max(2, m * 0.004); g.strokeStyle = 'rgba(255,255,255,.9)'; g.stroke();
+      } else {
+        var sc = 1.12 - 0.12 * VB.ease((t - b.s) / 0.3), cx = x + w / 2, cy = y + h / 2;
+        g.translate(cx, cy); g.scale(sc, sc); g.translate(-cx, -cy); g.globalAlpha = k;
+        g.shadowColor = 'rgba(0,0,0,.35)'; g.shadowBlur = m * 0.012;
+        rr(g, x, y, w, h, m * 0.012); g.lineWidth = Math.max(3, m * 0.007); g.strokeStyle = '#e62117'; g.stroke();
+      }
+      g.restore();
+    });
+  }
+
+  /* ------------------------------------------------------------------ captions */
+  VB.CAPTION_STYLES = [['karaoke', 'Karaoke'], ['clean', 'Clean'], ['bold', 'Big & bold'], ['box', 'TV box']];
+  function drawCaptions(g, W, H, e, s, t, progress) {
+    var c = e.captions; if (!c || !c.on || !s.cues || !s.cues.length) return;
+    var cue = null;
+    for (var i = 0; i < s.cues.length; i++) { var q = s.cues[i]; if (t >= q.s - 0.04 && t <= q.hold) { cue = q; break; } if (q.s > t) break; }
+    if (!cue) return;
+    var m = Math.min(W, H), vert = H > W * 1.2, size = c.size || 1, style = c.style || 'karaoke', bold = style === 'bold';
+    var fs = Math.round(m * (bold ? (vert ? 0.105 : 0.085) : (vert ? 0.062 : 0.05)) * size);
+    var upper = bold || c.upper, hi = c.color || '#ffde00';
+    g.save();
+    g.font = (bold ? '400 ' + fs + 'px Anton, Impact, sans-serif' : style === 'box' ? '500 ' + fs + 'px Roboto, Arial' : '800 ' + fs + 'px Roboto, Arial');
+    g.textBaseline = 'middle'; g.textAlign = 'left'; g.lineJoin = 'round';
+    var space = g.measureText(' ').width, maxW = W * (vert ? 0.84 : 0.8), lines = [[]], lw = [0];
+    var items = cue.words.map(function (w) { var txt = upper ? String(w[2]).toUpperCase() : String(w[2]); return { w: w, txt: txt, width: g.measureText(txt).width }; });
+    items.forEach(function (it) {
+      var L = lines.length - 1, add = (lines[L].length ? space : 0) + it.width;
+      if (lines[L].length && lw[L] + add > maxW) { lines.push([it]); lw.push(it.width); } else { lines[L].push(it); lw[L] += add; }
+    });
+    var lh = fs * (bold ? 1.08 : 1.28), total = lines.length * lh;
+    var y0 = c.pos === 'top' ? m * 0.1 + lh / 2 : c.pos === 'middle' ? H / 2 - total / 2 + lh / 2 : (vert ? H * 0.7 : H - m * 0.09 - (progress ? m * 0.012 : 0)) - total + lh / 2;
+    var pop = bold ? 0.86 + 0.14 * VB.ease((t - cue.s) / 0.12) : 1;
+    lines.forEach(function (line, li) {
+      var y = y0 + li * lh, x = W / 2 - lw[li] / 2;
+      if (style === 'box') {
+        var padX = fs * 0.35; rr(g, x - padX, y - lh / 2 + fs * 0.06, lw[li] + padX * 2, lh - fs * 0.12, fs * 0.12); g.fillStyle = 'rgba(8,8,8,.78)'; g.fill();
+      }
+      line.forEach(function (it) {
+        var now = t >= it.w[0] && t < it.w[1] + 0.02, said = t >= it.w[0];
+        var fill = style === 'karaoke' ? (now ? hi : said ? '#fff' : 'rgba(255,255,255,.72)') : bold ? (now ? hi : '#fff') : '#fff';
+        var sc = pop * (bold && now ? 1.08 : 1), cx = x + it.width / 2;
+        g.save(); g.translate(cx, y); g.scale(sc, sc); g.translate(-cx, -y);
+        if (style !== 'box') {
+          g.lineWidth = fs * (bold ? 0.2 : 0.17); g.strokeStyle = 'rgba(0,0,0,.92)'; g.strokeText(it.txt, x, y);
+          if (bold) { g.shadowColor = 'rgba(0,0,0,.5)'; g.shadowBlur = fs * 0.12; g.shadowOffsetY = fs * 0.05; }
+        }
+        g.fillStyle = fill; g.fillText(it.txt, x, y);
+        g.restore();
+        x += it.width + space;
+      });
+    });
+    g.restore();
   }
   VB.camBubbleRect = function (W, H, cam) {
     var m = Math.min(W, H), d = (cam.size || 0.24) * m * 1.15, mg = m * 0.035, pos = cam.pos || 'br';
@@ -1407,6 +1504,27 @@
       ml.forEach(function (l, i) { g.fillText(l, cx, my + i * mlh); });
       g.fillStyle = col === '#cc181e' ? '#e62117' : col; var bw = W * 0.18 * VB.ease((k - 0.2) / 0.6); g.fillRect(cx - bw / 2, my + ml.length * mlh - mlh * 0.2, bw, m * 0.008);
       g.font = '400 ' + fontPx(W, H, 0.035) + 'px Roboto, Arial'; g.fillStyle = '#bbb'; g.fillText(sub, cx, my + ml.length * mlh + m * 0.05);
+    } else if (sc.style === 'endscreen') {
+      // Room for YouTube's end screen: two video boxes and a subscribe circle (YouTube puts the real ones on top).
+      var eg = g.createLinearGradient(0, 0, W, H); eg.addColorStop(0, '#1b1b1b'); eg.addColorStop(1, VB.mix(col, -0.55)); g.fillStyle = eg; g.fillRect(0, 0, W, H);
+      g.globalAlpha = inA; g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = '700 ' + fontPx(W, H, 0.07) + 'px "Roboto Condensed", Roboto, Arial'; g.fillText(title || 'Watch next', cx, H * 0.14);
+      var vertE = H > W, bw3 = vertE ? W * 0.74 : W * 0.33, bh3 = bw3 * 9 / 16, gap = vertE ? H * 0.04 : W * 0.05;
+      var boxes = vertE ? [[cx - bw3 / 2, H * 0.24], [cx - bw3 / 2, H * 0.24 + bh3 + gap]] : [[cx - bw3 - gap / 2, H * 0.27], [cx + gap / 2, H * 0.27]];
+      boxes.forEach(function (p, j) {
+        var lift = (1 - VB.ease((k - 0.15 * j) / 0.5)) * m * 0.05;
+        g.save(); g.globalAlpha = inA * VB.ease((k - 0.15 * j) / 0.5);
+        rr(g, p[0], p[1] + lift, bw3, bh3, m * 0.012); g.fillStyle = 'rgba(255,255,255,.07)'; g.fill();
+        g.setLineDash([m * 0.018, m * 0.012]); g.lineWidth = Math.max(2, m * 0.004); g.strokeStyle = 'rgba(255,255,255,.55)'; g.stroke(); g.setLineDash([]);
+        g.font = '500 ' + fontPx(W, H, 0.032) + 'px Roboto, Arial'; g.fillStyle = 'rgba(255,255,255,.7)'; g.fillText(j ? 'Best for viewer' : 'Your latest video', p[0] + bw3 / 2, p[1] + lift + bh3 / 2);
+        g.restore();
+      });
+      var r3 = m * (vertE ? 0.11 : 0.09), cy3 = vertE ? H * 0.24 + bh3 * 2 + gap * 2 + r3 : H * 0.27 + bh3 + m * 0.07 + r3;
+      g.globalAlpha = inA * VB.ease((k - 0.4) / 0.5);
+      g.beginPath(); g.arc(cx, cy3, r3, 0, 7); g.fillStyle = col === '#cc181e' ? '#e62117' : col; g.fill();
+      g.lineWidth = Math.max(2, m * 0.005); g.strokeStyle = '#fff'; g.stroke();
+      g.fillStyle = '#fff'; g.font = '700 ' + fontPx(W, H, 0.03) + 'px Roboto, Arial'; g.fillText('SUBSCRIBE', cx, cy3);
+      if (sub) { g.font = '400 ' + fontPx(W, H, 0.034) + 'px Roboto, Arial'; g.fillStyle = 'rgba(255,255,255,.8)'; g.fillText(sub, cx, cy3 + r3 + m * 0.05); }
     } else if (sc.style === 'subscribe') {
       var gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#e62117'); gr.addColorStop(1, '#a50f14'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
       g.globalAlpha = 0.08; g.fillStyle = '#fff';
@@ -1520,24 +1638,26 @@
     src.frame(L.srcT);
     var Lo = layoutOf(plan, s), pad = (e.pad || 0) * m, rad = (e.pad > 0.004 ? e.radius || 0 : 0) * m / 1080, zoom = VB.zoomAt(s.zooms, L.srcT);
     var main = src.main, cam = src.cam;
+    var bx = s.sc.boxes, t = L.srcT;
     if (Lo.lay === 'full' || Lo.lay === 'camfull') {
       var img = Lo.lay === 'full' ? main : cam;
       background(g, W, H, e.bg, img);
       var R = { x: pad, y: pad, w: W - 2 * pad, h: H - 2 * pad };
-      drawInto(g, img, R, null, rad, true, pad ? m * 0.03 : 0);
+      var mf = drawInto(g, img, R, null, rad, true, pad ? m * 0.03 : 0);
+      if (Lo.lay === 'full') drawBoxes(g, img, mf, bx, t, W, H);
       return;
     }
     background(g, W, H, e.bg, main);
     if (Lo.lay === 'stack') {
       var sh = (W - 2 * pad) * main.h / main.w, top = { x: pad, y: pad, w: W - 2 * pad, h: Math.min(sh, H * 0.55) };
-      drawInto(g, main, top, zoom, rad, false, pad ? m * 0.03 : 0);
+      drawBoxes(g, main, drawInto(g, main, top, zoom, rad, false, pad ? m * 0.03 : 0), bx, t, W, H);
       var bot = { x: pad, y: top.y + top.h + pad, w: W - 2 * pad, h: H - top.h - 3 * pad };
       if (Lo.has) drawInto(g, cam, bot, null, rad, true, pad ? m * 0.03 : 0);
       return;
     }
     if (Lo.lay === 'side') {
       var lw = (W - 3 * pad) * 0.7, left = { x: pad, y: pad, w: lw, h: H - 2 * pad };
-      drawInto(g, main, left, zoom, rad, false, pad ? m * 0.03 : 0);
+      drawBoxes(g, main, drawInto(g, main, left, zoom, rad, false, pad ? m * 0.03 : 0), bx, t, W, H);
       var right = { x: pad * 2 + lw, y: pad + (H - 2 * pad) * 0.12, w: W - 3 * pad - lw, h: (H - 2 * pad) * 0.76 };
       if (Lo.has) drawInto(g, cam, right, null, rad || m * 0.02, true, m * 0.03);
       return;
@@ -1545,12 +1665,12 @@
     if (Lo.lay === 'crop') {
       var f = s.take.clicks && s.take.clicks.length ? VB.focusAt(s.take.clicks, L.srcT) : [0.5, 0.5];
       var cz = zoom.k > 0 ? zoom : { z: 1, x: f[0], y: f[1] };
-      drawInto(g, main, { x: 0, y: 0, w: W, h: H }, cz, 0, true, 0);
+      drawBoxes(g, main, drawInto(g, main, { x: 0, y: 0, w: W, h: H }, cz, 0, true, 0), bx, t, W, H);
       if (Lo.has) bubble(g, cam, W, H, Lo.cam);
       return;
     }
     var area = { x: pad, y: pad, w: W - 2 * pad, h: H - 2 * pad };
-    drawInto(g, main, area, zoom, rad, false, pad ? m * 0.03 : 0);
+    drawBoxes(g, main, drawInto(g, main, area, zoom, rad, false, pad ? m * 0.03 : 0), bx, t, W, H);
     if (Lo.lay === 'pip' && Lo.has) bubble(g, cam, W, H, Lo.cam);
   }
   /* Draw output time o. opt: {product, noTransitions, hideTextId} */
@@ -1570,6 +1690,7 @@
       (L.s.sc.texts || []).forEach(function (tx) {
         if (L.srcT >= tx.s && L.srcT <= tx.e && tx.id !== opt.hideTextId) drawText(g, W, H, tx, (L.srcT - tx.s) / L.s.speed, (tx.e - tx.s) / L.s.speed);
       });
+      if (!opt.noCaptions) drawCaptions(g, W, H, e, L.s, L.srcT, e.progress);
     }
     var m = Math.min(W, H);
     if (e.watermark && L.s.type !== 'card') {
@@ -1693,7 +1814,11 @@
     function finish() { self.o = self.plan.outDur; self.pause(); if (opts.onEnd) opts.onEnd(); }
     function loop(now) {
       if (!self.playing || dead) return;
+      var before = self.o;
       step(now);
+      if (self.plan && self.plan.sfx && self.plan.sfx.length && self.playing) {
+        VB.fireSfx(self.plan, before, self.o, function (ev) { var a = ensureAc(); if (a) VB.playSfx(a, a.destination, ev.kind, self.plan.edit.sfx && self.plan.edit.sfx.vol); });
+      }
       draw();
       raf = requestAnimationFrame(loop);
     }
@@ -1748,8 +1873,19 @@
       var p2 = VB.plan(plan.edit, Object.keys(takes).map(function (k) { return takes[k]; }), srcs);
       var ac = new (window.AudioContext || window.webkitAudioContext)(); cleanup.push(function () { ac.close(); });
       await ac.resume();
-      var dest = ac.createMediaStreamDestination(), voice = ac.createGain(); voice.connect(dest);
-      var an = ac.createAnalyser(); an.fftSize = 512; voice.connect(an);
+      var dest = ac.createMediaStreamDestination(), voice = ac.createGain(), voiceOut = voice;
+      if (plan.edit.voice_fx === 'clean') {
+        // "Clean voice": cut the rumble, a little presence, even out the level.
+        var hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 85; hp.Q.value = 0.7;
+        var pk = ac.createBiquadFilter(); pk.type = 'peaking'; pk.frequency.value = 3200; pk.Q.value = 0.9; pk.gain.value = 3;
+        var lo = ac.createBiquadFilter(); lo.type = 'lowshelf'; lo.frequency.value = 180; lo.gain.value = -2;
+        var cp = ac.createDynamicsCompressor(); cp.threshold.value = -26; cp.ratio.value = 3.5; cp.attack.value = 0.008; cp.release.value = 0.2; cp.knee.value = 8;
+        var mk = ac.createGain(); mk.gain.value = 1.45;
+        voice.connect(hp); hp.connect(lo); lo.connect(pk); pk.connect(cp); cp.connect(mk); voiceOut = mk;
+      }
+      voiceOut.connect(dest);
+      var an = ac.createAnalyser(); an.fftSize = 512; voiceOut.connect(an);
+      var sfxOut = ac.createGain(); sfxOut.gain.value = 1; sfxOut.connect(dest);
       var elGain = {};
       Object.keys(srcs).forEach(function (k) {
         var s = srcs[k];
@@ -1765,10 +1901,12 @@
       var rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: W * H > 1.2e6 ? 8e6 : 4.5e6, audioBitsPerSecond: 160000 });
       var chunks = []; rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
       var stopped = new Promise(function (res, rej) { rec.onstop = res; rec.onerror = function (e) { rej(e.error || new Error('Recording failed.')); }; });
-      var buf = new Float32Array(512), duckV = 1;
+      var buf = new Float32Array(512), duckV = 1, lastO = 0;
       function frame(o) {
         if (opts.signal && opts.signal.aborted) throw Object.assign(new Error('Export cancelled.'), { cancelled: true });
-        VB.render(g, W, H, p2, o, { product: opts.product });
+        VB.render(g, W, H, p2, o, { product: opts.product, noCaptions: opts.noCaptions });
+        VB.fireSfx(p2, lastO, o, function (ev) { VB.playSfx(ac, sfxOut, ev.kind, p2.edit.sfx && p2.edit.sfx.vol); });
+        lastO = o;
         var env = VB.audioEnv(p2, o), now = ac.currentTime;
         voice.gain.setTargetAtTime(clamp(p2.edit.voice == null ? 1 : p2.edit.voice, 0, 2) * env, now, 0.02);
         if (mg) {
@@ -2405,10 +2543,636 @@
   };
 })();
 
+/* ===== _e_words.html ===== */
+(function () {
+  'use strict';
+  var VB = window.VB, clamp = VB.clamp;
+
+  /* ------------------------------------------------------------------ words helpers */
+  /* Spread a sentence over s..e, longer words taking longer. -> [[s, e, w], ...] */
+  VB.spread = function (text, s, e) {
+    var ws = String(text || '').trim().split(/\s+/).filter(Boolean);
+    if (!ws.length) return [];
+    var tot = ws.reduce(function (a, w) { return a + w.length + 2; }, 0), t = s, out = [];
+    ws.forEach(function (w) { var d = (e - s) * (w.length + 2) / tot; out.push([+t.toFixed(2), +(t + d * 0.92).toFixed(2), w.slice(0, 40)]); t += d; });
+    return out;
+  };
+  VB.wordsOf = function (take) { return take && take.words && take.words.words || []; };
+  VB.plainWord = function (w) { return String(w || '').toLowerCase().replace(/[^\p{L}\p{N}']+/gu, ''); };
+  VB.FILLERS = ['um', 'umm', 'uh', 'uhh', 'uhm', 'er', 'erm', 'ah', 'ahh', 'hmm', 'mm', 'mhm'];
+  VB.isFiller = function (w) { return VB.FILLERS.indexOf(VB.plainWord(w)) >= 0; };
+
+  /* The sample takes' words, matching VB.SAMPLES speech and the sample script. */
+  var SAMPLE_TEXT = {
+    hello: ['Hi, I\'m Sam.', 'I kept killing my plants, so I built Pocket Garden.'],
+    garden: ['Every plant gets its own card, with the next watering on it.', 'Tap a plant to see its schedule. Basil needs water tomorrow.',
+      'One tap logs the watering. Done.', 'Um, adding a plant takes, uh, five seconds. Lemon tree, saved.', 'So easy.',
+      'And the reminders page tells you what needs water this week.']
+  };
+  VB.sampleWords = function (name) {
+    var S = VB.SAMPLES[name] || VB.SAMPLES.garden, lines = SAMPLE_TEXT[name] || SAMPLE_TEXT.garden, out = [];
+    S.speech.forEach(function (seg, i) { if (lines[i]) out = out.concat(VB.spread(lines[i], seg[0] + 0.05, seg[1] - 0.05)); });
+    return out;
+  };
+
+  /* ------------------------------------------------------------------ on-device transcription (Whisper) */
+  /* transformers.js in a module worker. The model (~40-150 MB) downloads once from Hugging Face and the
+     browser keeps it; the sound is decoded and transcribed here and never sent anywhere. */
+  var WORKER = [
+    "import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';",
+    "env.allowLocalModels = false;",
+    "const cache = {};",
+    "self.onmessage = async (e) => {",
+    "  const { id, audio, model, language } = e.data;",
+    "  try {",
+    "    if (!cache[model]) cache[model] = await pipeline('automatic-speech-recognition', model, { progress_callback: (p) => self.postMessage({ id, type: 'load', p }) });",
+    "    const asr = cache[model];",
+    "    self.postMessage({ id, type: 'run' });",
+    "    const extra = language ? { language, task: 'transcribe' } : {};",
+    "    let out, level = 'word';",
+    "    try { out = await asr(audio, Object.assign({ return_timestamps: 'word', chunk_length_s: 30, stride_length_s: 5 }, extra)); }",
+    "    catch (err) { level = 'segment'; out = await asr(audio, Object.assign({ return_timestamps: true, chunk_length_s: 30, stride_length_s: 5 }, extra)); }",
+    "    self.postMessage({ id, type: 'done', level, chunks: out.chunks || [], text: out.text || '' });",
+    "  } catch (err) { self.postMessage({ id, type: 'error', error: String(err && err.message || err) }); }",
+    "};"].join('\n');
+  var worker = null, jobs = {}, jobSeq = 0;
+  function getWorker() {
+    if (worker) return worker;
+    worker = new Worker(URL.createObjectURL(new Blob([WORKER], { type: 'text/javascript' })), { type: 'module' });
+    worker.onmessage = function (e) { var j = jobs[e.data.id]; if (j) j(e.data); };
+    worker.onerror = function (e) { Object.keys(jobs).forEach(function (k) { jobs[k]({ type: 'error', error: e.message || 'The caption helper couldn\'t start.' }); }); worker = null; };
+    return worker;
+  }
+  VB.MODELS = {
+    en: { id: 'onnx-community/whisper-tiny.en', label: 'English, fast (40 MB download)' },
+    en_base: { id: 'onnx-community/whisper-base.en', label: 'English, more accurate (150 MB)' },
+    multi: { id: 'onnx-community/whisper-tiny', label: 'Any language (40 MB)' }
+  };
+  function decodeMono(blob, rate) {
+    if (blob.size > 1.6e9) return Promise.reject(new Error('This take is too big to read the sound from.'));
+    return blob.arrayBuffer().then(function (buf) {
+      var ac = new OfflineAudioContext(1, rate, rate);
+      return new Promise(function (res, rej) { ac.decodeAudioData(buf, res, rej); });
+    }).then(function (ab) {
+      if (ab.numberOfChannels === 1) return ab.getChannelData(0);
+      var out = new Float32Array(ab.length), n = ab.numberOfChannels;
+      for (var ch = 0; ch < n; ch++) { var d = ab.getChannelData(ch); for (var i = 0; i < d.length; i++) out[i] += d[i] / n; }
+      return out;
+    });
+  }
+  /* For tests: replace with a function (audio Float32Array 16 kHz, model, language) -> Promise of {level, chunks}. */
+  VB._asr = null;
+  function runAsr(audio, model, language, prog) {
+    if (VB._asr) return VB._asr(audio, model, language);
+    return new Promise(function (res, rej) {
+      var id = ++jobSeq;
+      jobs[id] = function (msg) {
+        if (msg.type === 'load') { if (msg.p && msg.p.status === 'progress' && msg.p.total) prog(0.08 + 0.4 * (msg.p.loaded / msg.p.total), 'Downloading the speech model (only the first time)…'); }
+        else if (msg.type === 'run') prog(0.52, 'Listening and writing it down…');
+        else if (msg.type === 'done') { delete jobs[id]; res(msg); }
+        else if (msg.type === 'error') { delete jobs[id]; rej(new Error('Speech-to-text didn\'t work in this browser: ' + msg.error)); }
+      };
+      try { getWorker().postMessage({ id: id, audio: audio, model: model, language: language }, [audio.buffer]); }
+      catch (e) { delete jobs[id]; rej(e); }
+    });
+  }
+  /* src = an opened take (VB.openTake). -> Promise of {src, lang, words} ready for take_update. */
+  VB.transcribe = function (src, lang, onProgress) {
+    var prog = onProgress || function () {}, t = src.take;
+    if (t.sample) { prog(1, 'Done'); return Promise.resolve({ src: 'sample', lang: 'en', words: VB.sampleWords(src.sample) }); }
+    if (!src.blob) return Promise.reject(new Error('This take isn\'t on this computer.'));
+    if (!(t.main && t.main.audio)) return Promise.reject(new Error('This take has no sound to write down.'));
+    var m = VB.MODELS[lang] || VB.MODELS.en;
+    prog(0.03, 'Reading the sound…');
+    return decodeMono(src.blob, 16000).then(function (audio) {
+      return runAsr(audio, m.id, null, prog);  // English-only models refuse a language; the multilingual one detects it
+    }).then(function (msg) {
+      var words = [];
+      (msg.chunks || []).forEach(function (c) {
+        var ts = c.timestamp || [], cs = ts[0] || 0, ce = ts[1] == null ? cs + 0.4 : ts[1], txt = String(c.text || '').trim();
+        if (!txt) return;
+        if (msg.level === 'word' && txt.indexOf(' ') < 0) words.push([+cs.toFixed(2), +Math.max(cs + 0.05, ce).toFixed(2), txt.slice(0, 40)]);
+        else words = words.concat(VB.spread(txt, cs, Math.max(cs + 0.3, ce)));
+      });
+      words.sort(function (a, b) { return a[0] - b[0]; });
+      prog(1, 'Done');
+      return { src: 'whisper', lang: lang === 'multi' ? 'auto' : 'en', words: words };
+    });
+  };
+
+  /* ------------------------------------------------------------------ captions from the script (no download) */
+  /* The script's spoken lines, spread over the parts of a..b where there's sound. Approximate, instant. */
+  VB.alignScript = function (script, an, a, b) {
+    var text = VB.parseScript(script).filter(function (l) { return l.k === 'line'; }).map(function (l) { return l.text.replace(/\(pause\)/gi, ' '); }).join(' ');
+    var ws = text.split(/\s+/).filter(Boolean);
+    if (!ws.length) return [];
+    var gaps = an ? VB.silences(an, a, b, { minGap: 0.4, pad: 0.04 }) : [], runs = [], t = a;
+    gaps.forEach(function (g) { if (g[0] - t > 0.12) runs.push([t, g[0]]); t = g[1]; });
+    if (b - t > 0.12) runs.push([t, b]);
+    if (!runs.length) runs = [[a, b]];
+    var talk = runs.reduce(function (s, r) { return s + r[1] - r[0]; }, 0);
+    var tot = ws.reduce(function (s, w) { return s + w.length + 2; }, 0), pos = 0, out = [];
+    function at(p) {  // talking time -> take time
+      for (var i = 0; i < runs.length; i++) { var len = runs[i][1] - runs[i][0]; if (p <= len || i === runs.length - 1) return { t: runs[i][0] + Math.min(p, len), run: runs[i] }; p -= len; }
+    }
+    ws.forEach(function (w) {
+      var d = talk * (w.length + 2) / tot, s0 = at(pos + 0.001), e0 = Math.min(s0.t + d * 0.92, s0.run[1]);
+      out.push([+s0.t.toFixed(2), +Math.max(s0.t + 0.05, e0).toFixed(2), w.slice(0, 40)]);
+      pos += d;
+    });
+    return out;
+  };
+
+  /* ------------------------------------------------------------------ caption lines */
+  /* opts: {max: characters per line, maxWords}. -> [{s, e, hold, words, text}] (take seconds) */
+  VB.cues = function (words, opts) {
+    opts = opts || {};
+    var max = opts.max || 42, maxWords = opts.maxWords || 9, out = [], cur = null;
+    (words || []).forEach(function (w) {
+      var txt = String(w[2]);
+      if (cur) {
+        var lastW = cur.words[cur.words.length - 1][2];
+        if (w[0] - cur.e > 0.7 || cur.text.length + 1 + txt.length > max || cur.words.length >= maxWords || w[1] - cur.s > 3.6 ||
+          (/[.!?]$/.test(lastW) && cur.words.length >= 2)) { out.push(cur); cur = null; }
+      }
+      if (!cur) cur = { s: w[0], e: w[1], words: [], text: '' };
+      cur.words.push(w); cur.e = w[1]; cur.text = cur.text ? cur.text + ' ' + txt : txt;
+    });
+    if (cur) out.push(cur);
+    out.forEach(function (c, i) { var n = out[i + 1]; c.hold = Math.min(n ? n.s : c.e + 0.7, c.e + 0.7); });
+    return out;
+  };
+  VB.cueOpts = function (edit) {
+    var c = edit.captions || {}, vert = edit.aspect === '9:16';
+    if (c.style === 'bold') return { max: vert ? 16 : 20, maxWords: 3 };
+    return vert ? { max: 24, maxWords: 6 } : { max: 40, maxWords: 9 };
+  };
+  /* Words of a plan scene that survive its cuts (VB.plan sets s.words). */
+  VB.keptWords = function (s) {
+    return VB.wordsOf(s.take).filter(function (w) {
+      var mid = (w[0] + w[1]) / 2;
+      return s.segs.some(function (g) { return mid >= g.a && mid <= g.b; });
+    });
+  };
+  /* Subtitles on the output timeline: [{s, e, text}] */
+  VB.planCues = function (plan) {
+    var out = [];
+    plan.scenes.forEach(function (s, si) {
+      if (s.type !== 'take' || !s.words || !s.words.length) return;
+      VB.cues(s.words, { max: 42, maxWords: 10 }).forEach(function (c) {
+        var os = VB.outOf(plan, si, c.s), oe = VB.outOf(plan, si, c.hold);
+        if (os < 0) return;
+        if (oe < os) oe = VB.outOf(plan, si, c.e);
+        if (oe < os) oe = os + (c.e - c.s) / s.speed;
+        out.push({ s: os, e: Math.min(oe, s.start + s.dur), text: c.text });
+      });
+    });
+    return out;
+  };
+  function stamp(t, sep) {
+    t = Math.max(0, t);
+    var h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = Math.floor(t % 60), ms = Math.round((t - Math.floor(t)) * 1000);
+    if (ms === 1000) { ms = 999; }
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0') + sep + String(ms).padStart(3, '0');
+  }
+  VB.toSRT = function (cues) {
+    return cues.map(function (c, i) { return (i + 1) + '\n' + stamp(c.s, ',') + ' --> ' + stamp(c.e, ',') + '\n' + c.text; }).join('\n\n') + '\n';
+  };
+  VB.toVTT = function (cues) {
+    return 'WEBVTT\n\n' + cues.map(function (c) { return stamp(c.s, '.') + ' --> ' + stamp(c.e, '.') + '\n' + c.text; }).join('\n\n') + '\n';
+  };
+  VB.transcriptText = function (plan) {
+    return plan.scenes.filter(function (s) { return s.words && s.words.length; }).map(function (s) { return s.words.map(function (w) { return w[2]; }).join(' '); }).join('\n\n');
+  };
+
+  /* ------------------------------------------------------------------ editing by words */
+  /* Cuts that remove every filler word ("um", "uh"...) between a and b. */
+  VB.fillerCuts = function (words, a, b) {
+    var out = [];
+    (words || []).forEach(function (w, i) {
+      if (!VB.isFiller(w[2]) || w[0] < a || w[1] > b) return;
+      var prev = words[i - 1], next = words[i + 1];
+      var s = Math.max(prev ? prev[1] : a, w[0] - 0.06), e = Math.min(next ? next[0] : b, w[1] + 0.06);
+      if (e - s >= 0.05) out.push([+s.toFixed(2), +e.toFixed(2)]);
+    });
+    return out;
+  };
+  /* The cut that removes words i..j, eating into the gaps on both sides but never the neighbours. */
+  VB.wordCut = function (words, i, j) {
+    var a = words[i], b = words[j], prev = words[i - 1], next = words[j + 1];
+    var s = prev ? Math.max(prev[1], a[0] - 0.12) : a[0] - 0.08, e = next ? Math.min(next[0], b[1] + 0.12) : b[1] + 0.12;
+    return [+Math.max(0, s).toFixed(2), +e.toFixed(2)];
+  };
+})();
+
+/* ===== _f_youtube.html ===== */
+(function () {
+  'use strict';
+  var VB = window.VB;
+  var cfgP = null;
+  VB.getConfig = function (fresh) {
+    if (!cfgP || fresh) cfgP = UI.apiQuiet('public_config').then(function (c) { VB.config = c || {}; return VB.config; }, function () { cfgP = null; return VB.config || {}; });
+    return cfgP;
+  };
+  VB.config = { google_client_id: '', extension_store_url: '' };
+  VB.lastExport = {};
+
+  var UPLOAD = 'https://www.googleapis.com/auth/youtube.upload', CAPS = 'https://www.googleapis.com/auth/youtube.force-ssl';
+  var gis = null, tok = null;
+  function loadGis() {
+    if (window.google && window.google.accounts && window.google.accounts.oauth2) return Promise.resolve();
+    if (gis) return gis;
+    gis = new Promise(function (res, rej) {
+      var s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
+      s.onload = function () { res(); }; s.onerror = function () { gis = null; rej(new Error('Couldn\'t reach Google sign-in. Check your connection or ad blocker.')); };
+      document.head.appendChild(s);
+    });
+    return gis;
+  }
+  VB.yt = {
+    CATEGORIES: [['28', 'Science & Technology'], ['27', 'Education'], ['22', 'People & Blogs'], ['26', 'Howto & Style'], ['24', 'Entertainment'], ['20', 'Gaming']],
+    connected: function (withCaptions) { return !!(tok && tok.exp > Date.now() + 60000 && (!withCaptions || tok.caps)); },
+    /* Ask Google for a token (a popup the first time; quick after that). */
+    connect: function (withCaptions) {
+      if (VB.yt.connected(withCaptions)) return Promise.resolve(tok.value);
+      if (VB.yt._fake) return VB.yt._fake.connect(withCaptions).then(function (v) { tok = { value: v, exp: Date.now() + 3e6, caps: !!withCaptions }; return v; });
+      var cid = VB.config.google_client_id;
+      if (!cid) return Promise.reject(new Error('YouTube upload isn\'t set up yet. An admin adds the Google client ID in Admin → Settings.'));
+      return loadGis().then(function () {
+        return new Promise(function (res, rej) {
+          var scope = UPLOAD + (withCaptions ? ' ' + CAPS : '');
+          var client = window.google.accounts.oauth2.initTokenClient({
+            client_id: cid, scope: scope, include_granted_scopes: true,
+            callback: function (r) {
+              if (r.error) { rej(new Error(r.error === 'access_denied' ? 'Google sign-in was cancelled.' : 'Google said: ' + r.error)); return; }
+              var caps = window.google.accounts.oauth2.hasGrantedAllScopes(r, CAPS);
+              tok = { value: r.access_token, exp: Date.now() + (r.expires_in || 3600) * 1000, caps: caps };
+              res(tok.value);
+            },
+            error_callback: function (e) { rej(new Error(e && e.type === 'popup_closed' ? 'The Google window was closed.' : 'Google sign-in didn\'t open (allow pop-ups for this site).')); }
+          });
+          client.requestAccessToken({ prompt: '' });
+        });
+      });
+    },
+    disconnect: function () {
+      if (tok && window.google && window.google.accounts && window.google.accounts.oauth2) { try { window.google.accounts.oauth2.revoke(tok.value, function () {}); } catch (e) { /* gone */ } }
+      tok = null;
+    },
+    /* YouTube refuses < and > in titles and descriptions; titles max 100, description 5000, tags 500 in total. */
+    clean: function (meta) {
+      function nolt(s) { return String(s || '').replace(/[<>]/g, ''); }
+      var tags = [], len = 0;
+      String(meta.tags || '').split(',').map(function (t) { return nolt(t).trim(); }).filter(Boolean).forEach(function (t) {
+        var add = t.length + (t.indexOf(' ') >= 0 ? 2 : 0) + (tags.length ? 1 : 0); if (len + add <= 500) { tags.push(t); len += add; } });
+      var desc = nolt(meta.description).slice(0, 5000);
+      if (meta.vertical && !/#shorts/i.test(desc + ' ' + meta.title)) desc = (desc + '\n\n#Shorts').trim().slice(0, 5000);
+      var body = { snippet: { title: nolt(meta.title).trim().slice(0, 100) || 'Untitled video', description: desc, tags: tags, categoryId: meta.category || '28' },
+        status: { privacyStatus: meta.publishAt ? 'private' : (meta.privacy || 'private'), selfDeclaredMadeForKids: !!meta.kids, embeddable: true } };
+      if (meta.publishAt) body.status.publishAt = meta.publishAt;
+      if (meta.language) { body.snippet.defaultLanguage = meta.language; body.snippet.defaultAudioLanguage = meta.language; }
+      return body;
+    },
+    /* Resumable upload with progress. -> Promise of the YouTube video resource ({id, ...}) */
+    upload: function (blob, meta, onProgress, signal) {
+      var body = VB.yt.clean(meta), type = blob.type || 'video/mp4';
+      if (VB.yt._fake) return VB.yt._fake.upload(blob, body, onProgress);
+      return VB.yt.connect(meta.captions).then(function (token) {
+        return fetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', {
+          method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Length': String(blob.size), 'X-Upload-Content-Type': type },
+          body: JSON.stringify(body)
+        }).then(function (r) {
+          if (!r.ok) return r.json().then(function (j) { throw new Error(ytError(j, r.status)); }, function () { throw new Error('YouTube said no (' + r.status + ').'); });
+          var where = r.headers.get('Location');
+          if (!where) throw new Error('YouTube didn\'t give an upload address.');
+          return new Promise(function (res, rej) {
+            var x = new XMLHttpRequest(); x.open('PUT', where); x.setRequestHeader('Content-Type', type);
+            x.upload.onprogress = function (e) { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
+            x.onload = function () {
+              var j = null; try { j = JSON.parse(x.responseText); } catch (e) { /* not json */ }
+              if (x.status >= 200 && x.status < 300 && j && j.id) res(j); else rej(new Error(ytError(j, x.status)));
+            };
+            x.onerror = function () { rej(new Error('The upload stopped (network). Try again.')); };
+            x.onabort = function () { rej(Object.assign(new Error('Upload cancelled.'), { cancelled: true })); };
+            if (signal) signal.abort = function () { x.abort(); };
+            x.send(blob);
+          });
+        });
+      });
+    },
+    thumbnail: function (id, jpeg) {
+      if (VB.yt._fake) return VB.yt._fake.thumbnail(id, jpeg);
+      return VB.yt.connect().then(function (token) {
+        return fetch('https://www.googleapis.com/upload/youtube/v3/thumbnails/set?uploadType=media&videoId=' + encodeURIComponent(id), {
+          method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'image/jpeg' }, body: jpeg });
+      }).then(function (r) { if (!r.ok) return r.json().then(function (j) { throw new Error(ytError(j, r.status)); }, function () { throw new Error('The thumbnail wasn\'t accepted (' + r.status + ').'); }); return true; });
+    },
+    captions: function (id, srt, lang) {
+      if (VB.yt._fake) return VB.yt._fake.captions(id, srt, lang);
+      return VB.yt.connect(true).then(function (token) {
+        var b = 'vbb' + Math.random().toString(36).slice(2), meta = { snippet: { videoId: id, language: lang || 'en', name: 'Captions', isDraft: false } };
+        var body = '--' + b + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(meta) + '\r\n--' + b + '\r\nContent-Type: application/octet-stream\r\n\r\n' + srt + '\r\n--' + b + '--';
+        return fetch('https://www.googleapis.com/upload/youtube/v3/captions?uploadType=multipart&part=snippet', {
+          method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'multipart/related; boundary=' + b }, body: body });
+      }).then(function (r) { if (!r.ok) return r.json().then(function (j) { throw new Error(ytError(j, r.status)); }, function () { throw new Error('The captions weren\'t accepted (' + r.status + ').'); }); return true; });
+    },
+    _fake: null   // tests: {connect, upload, thumbnail, captions}
+  };
+  function ytError(j, status) {
+    var e = j && j.error, reason = e && e.errors && e.errors[0] && e.errors[0].reason;
+    if (reason === 'quotaExceeded') return 'YouTube\'s daily upload allowance for this app is used up. Try again tomorrow, or upload in YouTube Studio.';
+    if (reason === 'uploadLimitExceeded') return 'Your channel has hit YouTube\'s upload limit for today.';
+    if (reason === 'youtubeSignupRequired') return 'That Google account has no YouTube channel yet. Create one at youtube.com first.';
+    if (reason === 'forbidden' || status === 403) return 'YouTube refused this (' + ((e && e.message) || 'forbidden') + '). For custom thumbnails, verify your phone number at youtube.com/verify.';
+    if (status === 401) { tok = null; return 'Your Google sign-in ran out. Press Upload again.'; }
+    return 'YouTube said: ' + ((e && e.message) || 'error ' + status);
+  }
+})();
+
+/* ===== _g_write.html ===== */
+(function () {
+  'use strict';
+  var VB = window.VB;
+  function lower(s) { s = String(s || '').trim(); return s ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
+  function upper(s) { s = String(s || '').trim(); return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+  function feats(p) { return String(p && p.features || '').split(/\n/).map(function (s) { return s.trim(); }).filter(Boolean); }
+
+  /* ------------------------------------------------------------------ hooks */
+  VB.hooks = function (p) {
+    p = p || {};
+    var app = p.name || 'my app', tag = lower(p.tagline) || 'get it done faster', aud = p.audience || 'people like you', f = feats(p);
+    var f1 = lower(f[0]) || 'the main feature', f2 = lower(f[1]) || 'a hidden feature';
+    return [
+      ['Pain', 'Stop doing this by hand. ' + app + ' does it for you.'],
+      ['Story', 'I got tired of doing it the slow way, so I built ' + app + '.'],
+      ['Audience', 'If you\'re one of the ' + aud + ', you need to see this.'],
+      ['Speed', 'This used to take me ten minutes. Now it takes ten seconds.'],
+      ['Demo', 'Watch me ' + f1.replace(/^(you can |it |lets you )/i, '') + ' in under 30 seconds.'],
+      ['Promise', 'Here\'s the easiest way to ' + tag.replace(/^(it |to )/i, '') + '.'],
+      ['Secret', 'Nobody talks about this part of ' + app + ': ' + f2 + '.'],
+      ['List', '3 things ' + app + ' does that ' + aud + ' will love.'],
+      ['Question', 'What if you never had to think about it again?'],
+      ['Proof', 'One click. That\'s it. Here\'s ' + app + '.'],
+      ['POV', 'POV: you\'re one of the ' + aud + ' and you just found ' + app + '.'],
+      ['Build', 'I built ' + app + ' on my own. Here\'s what it does, and how.']
+    ].map(function (h) { return { kind: h[0], text: h[1] }; });
+  };
+
+  /* ------------------------------------------------------------------ script doctor */
+  var TARGETS = { short: [15, 60, 180], reel: [15, 45, 90], square: [15, 60, 120], youtube: [90, 480, 1200], tutorial: [180, 720, 2400], devlog: [180, 600, 1800] };
+  var WEAK = ['basically', 'actually', 'literally', 'really', 'very', 'just', 'kind of', 'sort of', 'you know', 'i mean', 'super', 'pretty much'];
+  VB.doctor = function (text, kind) {
+    var lines = VB.parseScript(text), spoken = lines.filter(function (l) { return l.k === 'line'; }).map(function (l) { return l.text.replace(/\(pause\)/gi, ' ').trim(); });
+    var st = VB.scriptStats(text), all = spoken.join(' '), items = [], tg = TARGETS[kind] || TARGETS.youtube;
+    function add(state, title, tip) { items.push({ state: state, title: title, tip: tip || '' }); }
+    if (!spoken.length) return { score: 0, items: [{ state: 'bad', title: 'Nothing to say yet', tip: 'Write a line, pick a template, or try the Hook lab.' }], stats: st };
+    var first = spoken[0], fw = first.split(/\s+/).length;
+    if (/^(hi|hey|hello)\b|in this video|today i('|’)?m going|welcome (back )?to/i.test(first)) add('warn', 'The first line warms up instead of hooking', 'Skip "Hi" and "In this video". Open with the payoff or the problem, then say hello.');
+    else if (fw > 20) add('warn', 'Your hook is ' + fw + ' words long', 'Get to the point in under 20 words: viewers decide in the first 3 seconds.');
+    else add('ok', 'Strong, short first line', '“' + first.slice(0, 70) + (first.length > 70 ? '…' : '') + '”');
+    var sec = st.seconds;
+    if (sec < tg[0]) add('warn', 'Very short: about ' + VB.fmtTime(sec), 'That\'s fine for a teaser; add a demo beat or a reason to care.');
+    else if (sec > tg[2]) add('bad', 'Too long for a ' + VB.kind(kind).label + ': about ' + VB.fmtTime(sec), (kind === 'short' ? 'Shorts can be at most 3 minutes. ' : '') + 'Aim for about ' + VB.fmtTime(tg[1]) + '. Try "Trim to a Short" or cut a section.');
+    else if (sec > tg[1] * 1.25) add('warn', 'A bit long: about ' + VB.fmtTime(sec), 'The sweet spot for this format is about ' + VB.fmtTime(tg[1]) + '.');
+    else add('ok', 'Good length: about ' + VB.fmtTime(sec), 'Spoken at a relaxed 150 words a minute.');
+    var cta = /\b(try|link|subscribe|follow|sign up|download|comment|check (it )?out|visit|join|get it|free)\b/i;
+    if (cta.test(spoken.slice(-3).join(' '))) add('ok', 'Ends with a call to action', 'People know what to do next.');
+    else if (cta.test(all)) add('warn', 'The call to action isn\'t at the end', 'Put "try it / link below / subscribe" in the last lines too.');
+    else add('bad', 'No call to action', 'Tell viewers what to do: try the app, click the link, subscribe.');
+    var sentences = all.split(/(?<=[.!?])\s+/).filter(function (s) { return s.split(/\s+/).length > 25; });
+    if (sentences.length) add('warn', UI.plural(sentences.length, 'long sentence'), 'Split it: “' + sentences[0].split(/\s+/).slice(0, 12).join(' ') + '…”');
+    else add('ok', 'Easy to say out loud', 'No sentence is longer than 25 words.');
+    var low = ' ' + all.toLowerCase().replace(/[^a-z' ]+/g, ' ') + ' ', weak = [];
+    WEAK.forEach(function (w) { var n = low.split(' ' + w + ' ').length - 1; if (n) weak.push(w + (n > 1 ? ' ×' + n : '')); });
+    var weakN = weak.reduce(function (a, w) { var m = w.match(/×(\d+)/); return a + (m ? +m[1] : 1); }, 0);
+    if (weakN > Math.max(2, st.words / 60)) add('warn', 'Filler words: ' + weak.slice(0, 5).join(', '), 'Cut most of them: the script gets shorter and sounds more sure.');
+    else add('ok', 'Few filler words', weak.length ? 'Only ' + weak.join(', ') + '.' : 'Crisp.');
+    var you = (low.match(/ (you|your|you're|yours) /g) || []).length, me = (low.match(/ (i|me|my|i'm|i've|mine) /g) || []).length;
+    if (you >= me * 0.6 || st.words < 40) add('ok', 'Talks to the viewer', 'You: ' + you + ' · I: ' + me);
+    else add('warn', 'More about you than the viewer', 'Turn some "I built…" into "you can…" (you: ' + you + ', I: ' + me + ').');
+    var shows = lines.filter(function (l) { return l.k === 'show'; }).length, heads = lines.filter(function (l) { return l.k === 'h'; }).length;
+    if (!shows && spoken.length > 3) add('warn', 'No [SHOW: …] notes', 'Add what\'s on screen for each part, so recording is easy.');
+    if (!VB.isVertical(kind) && kind !== 'square') {
+      if (heads >= 3) add('ok', UI.plural(heads, 'section') + ': chapters ready', 'Each # heading can become a YouTube chapter.');
+      else add('warn', 'Only ' + UI.plural(heads, 'section'), 'Long videos with 3+ chapters keep viewers longer. Add # headings.');
+    }
+    var pts = items.reduce(function (a, it) { return a + (it.state === 'ok' ? 1 : it.state === 'warn' ? 0.5 : 0); }, 0);
+    return { score: Math.round(pts / items.length * 100), items: items, stats: st };
+  };
+
+  /* ------------------------------------------------------------------ prompts for any AI chat */
+  VB.AI_TASKS = [
+    ['script', 'Write the whole script', '📝'], ['hook', '10 better hooks', '🪝'], ['tighten', 'Tighten my script', '✂️'],
+    ['short', 'Turn it into a Short', '📱'], ['titles', 'Titles + thumbnail words', '🏷️'], ['ideas', '10 video ideas', '💡']
+  ];
+  VB.aiPrompt = function (task, c) {
+    c = c || {};
+    var p = c.product || {}, v = c.video || {}, k = VB.kind(v.kind), script = String(c.script || '').trim(), f = feats(p);
+    var about = p.name ? ['The app: ' + p.name + (p.tagline ? ' — ' + p.tagline : ''), p.audience ? 'Made for: ' + p.audience : '', f.length ? 'Features:\n' + f.map(function (x) { return '- ' + x; }).join('\n') : '',
+      p.url ? 'Link: ' + p.url : '', p.cta ? 'Call to action: ' + p.cta : ''].filter(Boolean).join('\n') : 'The app: (describe it here)';
+    var fmt = 'Format the script like this: a line starting with "# " for each section, a line "[SHOW: what is on screen]" before each part of the screen recording, short spoken lines, and "(pause)" for a beat. Write in plain, friendly spoken English, talking to "you". Reply with only the script.';
+    var target = { short: '45 seconds (about 110 words), vertical', reel: '30 seconds (about 75 words), vertical', square: '45 seconds', youtube: '4 minutes (about 600 words)', tutorial: '8 minutes with clear steps', devlog: '6 minutes, personal and honest' }[v.kind] || '3 minutes';
+    var out;
+    if (task === 'hook') out = 'I make videos about the apps I build. Give me 10 opening lines (hooks) for a ' + k.label + ' about my app. Each under 15 words, no "Hi" or "In this video". Mix styles: a pain, a surprising fact, a quick result, a question, a story.\n\n' + about + (script ? '\n\nMy current first lines:\n' + script.split('\n').slice(0, 6).join('\n') : '');
+    else if (task === 'tighten') out = 'Tighten this video script for a ' + k.label + ' to about ' + target + '. Keep my voice, keep the sections, cut filler words and repetition, make every sentence easy to say out loud, and end with a clear call to action. ' + fmt + '\n\n' + about + '\n\nScript:\n' + (script || '(paste the script)');
+    else if (task === 'short') out = 'Turn this script into a 45-second vertical Short (YouTube Shorts / Instagram Reels). Hook in the first 2 seconds, one idea, fast pace, a call to action at the end. ' + fmt + '\n\n' + about + '\n\nScript:\n' + (script || '(paste the script)');
+    else if (task === 'titles') out = 'Give me 10 YouTube titles for this video (under 60 characters, honest, curiosity without clickbait) and, for each, 2-4 big words for the thumbnail.\n\nVideo: ' + (v.title || '') + ' (' + k.label + ')\n' + about + (script ? '\n\nScript:\n' + script : '');
+    else if (task === 'ideas') out = 'I build apps and make YouTube videos and Shorts about them. Give me 10 video ideas for this app: a title, the format (Short, tutorial, devlog...), and the hook line for each. Make them useful for the audience, not just ads.\n\n' + about;
+    else out = 'Write a script for a ' + k.label + ' about my app, about ' + target + ' long. Start with a strong hook (no "Hi, in this video"), show the app in action, and end with a call to action. ' + fmt + '\n\nVideo title: ' + (v.title || '(untitled)') + '\n' + about + (c.handle ? '\nMy channel: ' + c.handle : '') + (script ? '\n\nWhat I have so far:\n' + script : '');
+    return out;
+  };
+
+  /* ------------------------------------------------------------------ release notes -> "What's new" script */
+  VB.parseNotes = function (text) {
+    var out = { added: [], improved: [], fixed: [] };
+    String(text || '').split(/\n/).forEach(function (raw) {
+      var l = raw.trim();
+      if (!l || /^#{1,6}\s/.test(l)) return;  // headings like "## v1.4"
+      l = l.replace(/^[-*•+]\s*/, '').replace(/^[0-9a-f]{7,40}\s+/i, '').replace(/^\d+[.)]\s+/, '').replace(/\s*\(#\d+\)\s*$/, '').replace(/\s*#\d+\s*$/, '');
+      var m = l.match(/^(\w+)(\([^)]*\))?!?:\s*(.+)$/), kind = null;
+      if (m) { var k = m[1].toLowerCase(); l = m[3]; kind = /^(fix|bug|hotfix)/.test(k) ? 'fixed' : /^(perf|refactor|improve|style|polish|tweak)/.test(k) ? 'improved' : /^(feat|add|new)/.test(k) ? 'added' : /^(chore|docs?|test|ci|build|bump|merge|wip|release|revert)/.test(k) ? 'skip' : null; }
+      if (/^(merge (branch|pull)|bump version|update readme|wip\b)/i.test(l) || kind === 'skip') return;
+      if (/^#{1,6}\s/.test(l)) return;
+      if (!kind) kind = /\b(fix(ed|es)?|bug|crash|error|broken|typo)\b/i.test(l) ? 'fixed' : /\b(improv|faster|better|speed|polish|clean|tweak|updat|smoother|redesign)/i.test(l) ? 'improved' : 'added';
+      l = upper(l.replace(/\.$/, '')).slice(0, 140);
+      if (l.length > 2) out[kind].push(l);
+    });
+    return out;
+  };
+  VB.fromNotes = function (text, p, handle) {
+    var n = VB.parseNotes(text), app = (p && p.name) || 'the app', total = n.added.length + n.improved.length + n.fixed.length;
+    if (!total) return '';
+    var s = ['# Hook', app + ' just got ' + (total === 1 ? 'an upgrade' : total + ' upgrades') + '. Here\'s what\'s new.', ''];
+    n.added.slice(0, 5).forEach(function (a, i) { s.push('# New: ' + a.slice(0, 60)); s.push('[SHOW: ' + a + ']'); s.push((i ? 'Also new: ' : 'First, ') + lower(a) + '.'); s.push(''); });
+    if (n.added.length > 5) { s.push('# More new things'); s.push('Plus ' + (n.added.length - 5) + ' more: ' + n.added.slice(5, 8).map(lower).join(', ') + '.'); s.push(''); }
+    if (n.improved.length) { s.push('# Improved'); s.push('[SHOW: ' + n.improved[0] + ']'); n.improved.slice(0, 4).forEach(function (a) { s.push(upper(a) + '.'); }); s.push(''); }
+    if (n.fixed.length) { s.push('# Fixed'); s.push(n.fixed.length === 1 ? 'And one fix: ' + lower(n.fixed[0]) + '.' : 'And ' + n.fixed.length + ' fixes, including ' + lower(n.fixed[0]) + '.'); s.push(''); }
+    s.push('# Thanks'); s.push('Thanks for all the feedback. ' + ((p && p.cta) || 'Try it') + ((p && p.url) ? ': ' + p.url : '') + '. ' + (handle ? 'Subscribe ' + handle + ' for the next update.' : 'Subscribe for the next update.'));
+    return s.join('\n');
+  };
+
+  /* ------------------------------------------------------------------ a ~1 minute version */
+  VB.shortVersion = function (text) {
+    var secs = [], cur = null;
+    VB.parseScript(text).forEach(function (l) { if (l.k === 'h' || !cur) { cur = { h: l.k === 'h' ? l.text : '', show: [], lines: [] }; secs.push(cur); if (l.k === 'h') return; } if (l.k === 'show') cur.show.push(l.text); else cur.lines.push(l.text); });
+    if (!secs.length) return '';
+    function wc(s) { return s.split(/\s+/).filter(Boolean).length; }
+    var first = secs[0], last = secs.length > 1 ? secs[secs.length - 1] : null, mid = secs.slice(1, last ? -1 : undefined);
+    var keep = [{ h: first.h || 'Hook', show: first.show.slice(0, 1), lines: first.lines.slice(0, 2) }];
+    mid.forEach(function (s) { if (s.lines.length || s.show.length) keep.push({ h: s.h, show: s.show.slice(0, 1), lines: s.lines.slice(0, 1).map(function (l) { return l.split(/(?<=[.!?])\s+/)[0]; }) }); });
+    if (last) keep.push({ h: last.h, show: last.show.slice(0, 1), lines: last.lines.slice(0, 2) });
+    var total = function () { return keep.reduce(function (a, s) { return a + s.lines.reduce(function (b, l) { return b + wc(l); }, 0); }, 0); };
+    while (total() > 140 && keep.length > 3) keep.splice(keep.length - 2, 1);
+    return keep.map(function (s) { return ['# ' + (s.h || 'Part')].concat(s.show.map(function (x) { return '[SHOW: ' + x + ']'; }), s.lines).join('\n'); }).join('\n\n');
+  };
+})();
+
+/* ===== _h_sound.html ===== */
+(function () {
+  'use strict';
+  var VB = window.VB;
+
+  VB.BEATS = [
+    { key: 'lofi', name: 'Lo-fi desk', emoji: '☕', bpm: 80, blurb: 'Dusty drums, warm chords. Tutorials and devlogs.' },
+    { key: 'upbeat', name: 'Launch day', emoji: '🚀', bpm: 116, blurb: 'Bright and bouncy. App tours and Shorts.' },
+    { key: 'chill', name: 'Sunday build', emoji: '🌤️', bpm: 92, blurb: 'Soft and calm. Talking over a demo.' },
+    { key: 'techno', name: 'Rave 1996', emoji: '💿', bpm: 132, blurb: 'Four on the floor, acid bass. Fast cuts.' }
+  ];
+  VB.beatInfo = function (k) { return VB.BEATS.filter(function (b) { return b.key === k; })[0] || null; };
+
+  var N = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  function hz(note, oct) { return 440 * Math.pow(2, (N[note[0]] + (note[1] === '#' ? 1 : note[1] === 'b' ? -1 : 0) + (oct + 1) * 12 - 69) / 12); }
+  /* chord = [root, intervals...] in semitones above the root note */
+  var SONGS = {
+    lofi: { bars: 8, swing: 0.16, chords: [['A', 2, [0, 3, 7, 10]], ['D', 2, [0, 3, 7, 10]], ['G', 2, [0, 4, 7, 10]], ['C', 3, [0, 4, 7, 11]]],
+      kick: [0, 1.75, 2.5], snare: [1, 3], hats: 8, pad: 'triangle', bass: 'sine', lead: null, crackle: 0.012, cut: 1400 },
+    upbeat: { bars: 8, swing: 0, chords: [['C', 3, [0, 4, 7]], ['G', 2, [0, 4, 7]], ['A', 2, [0, 3, 7]], ['F', 2, [0, 4, 7]]],
+      kick: [0, 1, 2, 3], snare: [1, 3], hats: 8, pad: 'sawtooth', bass: 'triangle', lead: 'square', crackle: 0, cut: 2600 },
+    chill: { bars: 8, swing: 0.08, chords: [['F', 2, [0, 4, 7, 11]], ['E', 2, [0, 3, 7, 10]], ['D', 2, [0, 3, 7, 10]], ['C', 3, [0, 4, 7, 11]]],
+      kick: [0, 2.5], snare: [2], hats: 4, pad: 'sine', bass: 'sine', lead: 'triangle', crackle: 0, cut: 1800 },
+    techno: { bars: 8, swing: 0, chords: [['A', 2, [0, 7, 12]], ['A', 2, [0, 7, 12]], ['F', 2, [0, 7, 12]], ['G', 2, [0, 7, 12]]],
+      kick: [0, 1, 2, 3], snare: [1, 3], hats: 16, offhat: true, pad: 'sawtooth', bass: 'sawtooth', lead: 'sawtooth', acid: true, crackle: 0, cut: 3200 }
+  };
+  var cache = {};
+  /* -> Promise of a WAV Blob that loops seamlessly. */
+  VB.beat = function (name) {
+    if (!SONGS[name]) return Promise.resolve(null);
+    if (cache[name]) return cache[name];
+    var info = VB.beatInfo(name), S = SONGS[name], spb = 60 / info.bpm, bar = spb * 4, len = S.bars * bar, rate = 44100;
+    var oc = new OfflineAudioContext(2, Math.ceil(len * rate), rate), rnd = VB.rng(name.length * 977 + 13);
+    var noise = oc.createBuffer(1, rate, rate), nd = noise.getChannelData(0);
+    for (var i = 0; i < nd.length; i++) nd[i] = rnd() * 2 - 1;
+    var comp = oc.createDynamicsCompressor(); comp.threshold.value = -18; comp.ratio.value = 4;
+    var master = oc.createGain(); master.gain.value = 0.55; master.connect(comp); comp.connect(oc.destination);
+    function env(g, t, a, peak, d) { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + d); }
+    function kick(t) {
+      var o = oc.createOscillator(), g = oc.createGain(); o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.14);
+      env(g, t, 0.004, name === 'techno' ? 1 : 0.8, 0.32); o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.4);
+    }
+    function noiseHit(t, type, f, peak, d) {
+      var n = oc.createBufferSource(), fl = oc.createBiquadFilter(), g = oc.createGain();
+      n.buffer = noise; fl.type = type; fl.frequency.value = f; fl.Q.value = type === 'bandpass' ? 0.8 : 0.5;
+      env(g, t, 0.002, peak, d); n.connect(fl); fl.connect(g); g.connect(master); n.start(t, rnd() * 0.5); n.stop(t + d + 0.05);
+    }
+    function tone(t, f, type, peak, a, d, cut, pan) {
+      var o = oc.createOscillator(), fl = oc.createBiquadFilter(), g = oc.createGain(), p = oc.createStereoPanner ? oc.createStereoPanner() : null;
+      o.type = type; o.frequency.value = f; fl.type = 'lowpass'; fl.frequency.value = cut || S.cut; env(g, t, a, peak, d);
+      o.connect(fl); fl.connect(g); if (p) { p.pan.value = pan || 0; g.connect(p); p.connect(master); } else g.connect(master);
+      o.start(t); o.stop(t + a + d + 0.05);
+      return fl;
+    }
+    for (var b = 0; b < S.bars; b++) {
+      var t0 = b * bar, ch = S.chords[b % S.chords.length], root = hz(ch[0], ch[1]);
+      S.kick.forEach(function (k) { kick(t0 + k * spb); });
+      S.snare.forEach(function (k) { noiseHit(t0 + k * spb, 'bandpass', name === 'techno' ? 1500 : 1900, name === 'chill' ? 0.18 : 0.42, name === 'lofi' ? 0.16 : 0.12); });
+      for (var h = 0; h < S.hats; h++) {
+        var step = 4 / S.hats, ht = t0 + h * step * spb + (h % 2 ? S.swing * spb * step : 0);
+        if (S.offhat && h % 4 !== 2) { if (h % 2) noiseHit(ht, 'highpass', 8000, 0.05, 0.03); continue; }
+        noiseHit(ht, 'highpass', 7000, h % 2 ? 0.06 : 0.1, 0.045);
+      }
+      // chords: a pad on bar start (lofi + chill), stabs on the off-beats (upbeat + techno)
+      ch[2].forEach(function (iv, k) {
+        var f = root * Math.pow(2, (iv + 12) / 12);
+        if (name === 'lofi' || name === 'chill') tone(t0 + k * 0.012, f, S.pad, 0.07, 0.08, bar * 0.95, S.cut, (k % 2 ? -0.3 : 0.3));
+        else [0.5, 1.5, 2.5, 3.5].forEach(function (q) { tone(t0 + q * spb, f, S.pad, name === 'techno' ? 0.05 : 0.06, 0.005, spb * 0.35, S.cut, (k % 2 ? -0.25 : 0.25)); });
+      });
+      // bass: roots on the beat
+      (name === 'techno' ? [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5] : name === 'upbeat' ? [0, 1, 1.5, 2, 3, 3.5] : [0, 2, 2.75]).forEach(function (q, k) {
+        var fl = tone(t0 + q * spb, root / 2 * (name === 'techno' && k % 4 === 3 ? 2 : 1), S.bass, name === 'techno' ? 0.2 : 0.28, 0.006, spb * (name === 'techno' ? 0.4 : 0.9), name === 'techno' ? 600 : 500);
+        if (S.acid) { fl.Q.value = 9; fl.frequency.setValueAtTime(380, t0 + q * spb); fl.frequency.exponentialRampToValueAtTime(1800 + 900 * Math.sin(b + k), t0 + q * spb + 0.05); fl.frequency.exponentialRampToValueAtTime(300, t0 + q * spb + spb * 0.38); }
+      });
+      // a little melody / arpeggio
+      if (S.lead && b % 2 === 1) {
+        var notes = name === 'chill' ? [0, 2, 4] : [0, 1, 2, 3, 2, 1, 0, 2];
+        notes.forEach(function (n, k) {
+          var iv = ch[2][n % ch[2].length] + 24 + (n >= ch[2].length ? 12 : 0), st = name === 'chill' ? 1.2 : 0.5;
+          tone(t0 + k * st * spb, root * Math.pow(2, iv / 12) / 2, S.lead, name === 'techno' ? 0.035 : 0.045, 0.01, spb * st * 0.8, name === 'techno' ? 2400 : 3000, 0.2);
+        });
+      }
+    }
+    if (S.crackle) { for (var c = 0; c < len * 6; c++) noiseHit(rnd() * len, 'highpass', 3000, S.crackle * (0.5 + rnd()), 0.01); }
+    cache[name] = oc.startRendering().then(function (buf) { return wav(buf); });
+    cache[name]['catch'](function () { delete cache[name]; });
+    return cache[name];
+  };
+  function wav(buf) {
+    var ch = buf.numberOfChannels, n = buf.length, rate = buf.sampleRate, out = new DataView(new ArrayBuffer(44 + n * ch * 2));
+    function str(o, s) { for (var i = 0; i < s.length; i++) out.setUint8(o + i, s.charCodeAt(i)); }
+    str(0, 'RIFF'); out.setUint32(4, 36 + n * ch * 2, true); str(8, 'WAVE'); str(12, 'fmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true);
+    out.setUint16(22, ch, true); out.setUint32(24, rate, true); out.setUint32(28, rate * ch * 2, true); out.setUint16(32, ch * 2, true); out.setUint16(34, 16, true);
+    str(36, 'data'); out.setUint32(40, n * ch * 2, true);
+    var data = []; for (var c = 0; c < ch; c++) data.push(buf.getChannelData(c));
+    var o = 44;
+    for (var i = 0; i < n; i++) for (var c2 = 0; c2 < ch; c2++) { var v = Math.max(-1, Math.min(1, data[c2][i])); out.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true); o += 2; }
+    return new Blob([out], { type: 'audio/wav' });
+  }
+
+  /* ------------------------------------------------------------------ sound effects */
+  var sfxCache = typeof WeakMap === 'function' ? new WeakMap() : null;
+  VB.sfx = function (ac, kind) {
+    var per = sfxCache && sfxCache.get(ac);
+    if (!per) { per = {}; if (sfxCache) sfxCache.set(ac, per); }
+    if (per[kind]) return per[kind];
+    var rate = ac.sampleRate, rnd = VB.rng(kind === 'click' ? 7 : 11), T = kind === 'click' ? 0.06 : 0.55, n = Math.ceil(T * rate);
+    var buf = ac.createBuffer(1, n, rate), d = buf.getChannelData(0), lp = 0, lp2 = 0;
+    for (var i = 0; i < n; i++) {
+      var t = i / rate, x = rnd() * 2 - 1;
+      if (kind === 'click') d[i] = x * Math.exp(-t * 900) * 0.5 + Math.sin(2 * Math.PI * 2100 * t) * Math.exp(-t * 170) * 0.32 + Math.sin(2 * Math.PI * 700 * t) * Math.exp(-t * 120) * 0.18;
+      else {
+        var k = t / T, a = 0.02 + 0.25 * Math.sin(Math.PI * k);  // the band sweeps up and back down
+        lp += a * (x - lp); lp2 += a * 0.35 * (lp - lp2);
+        d[i] = (lp - lp2) * Math.pow(Math.sin(Math.PI * k), 2) * 1.4;
+      }
+    }
+    per[kind] = buf;
+    return buf;
+  };
+  VB.playSfx = function (ac, dest, kind, vol) {
+    var n = ac.createBufferSource(), g = ac.createGain();
+    n.buffer = VB.sfx(ac, kind); g.gain.value = (vol == null ? 0.6 : vol) * (kind === 'click' ? 0.9 : 0.7);
+    n.connect(g); g.connect(dest); n.start();
+  };
+  /* Sound effect moments on the output timeline: [{t, kind}] */
+  VB.sfxEvents = function (plan) {
+    var fx = plan.edit.sfx || {}, out = [];
+    if (!fx.clicks && !fx.whoosh) return out;
+    plan.scenes.forEach(function (s, si) {
+      if (fx.whoosh && si > 0) out.push({ t: Math.max(0, s.start - 0.22), kind: 'whoosh' });
+      if (fx.clicks && s.type === 'take') (s.take.clicks || []).forEach(function (c) { var o = VB.outOf(plan, si, c[0]); if (o >= 0) out.push({ t: o, kind: 'click' }); });
+    });
+    return out.sort(function (a, b) { return a.t - b.t; });
+  };
+  /* Fire the events between two moments (lo, hi], skipping big jumps (seeks). */
+  VB.fireSfx = function (plan, lo, hi, fn) {
+    if (!plan || !plan.sfx || !plan.sfx.length || hi <= lo || hi - lo > 0.6) return;
+    plan.sfx.forEach(function (e) { if (e.t > lo && e.t <= hi) fn(e); });
+  };
+})();
+
 /* ===== admin.html ===== */
 (function () {
   var esc = UI.esc;
-  var TABS = [['overview', 'Overview', 'grid'], ['templates', 'Templates', 'scroll'], ['feedback', 'Feedback', 'inbox'], ['users', 'Users', 'users'], ['demo', 'Demo data', 'database']];
+  var TABS = [['overview', 'Overview', 'grid'], ['templates', 'Templates', 'scroll'], ['settings', 'Settings', 'settings'], ['feedback', 'Feedback', 'inbox'], ['users', 'Users', 'users'], ['demo', 'Demo data', 'database']];
 
   UI.page('admin', { title: 'Admin', auth: 'admin' }, function (view, ctx) {
     var tab = TABS.some(function (t) { return t[0] === ctx.args[0]; }) ? ctx.args[0] : 'overview';
@@ -2427,6 +3191,7 @@
           stat(d.videos, 'videos', 'overview') + stat(d.published, 'published', 'overview') + stat(d.takes, 'takes recorded', 'overview') +
           stat(d.minutes, 'minutes recorded', 'overview') + stat(d.exports, 'exports', 'overview') + stat(d.vertical, 'vertical exports', 'overview') +
           stat(d.products, 'apps added', 'overview') + stat(d.extension_takes, 'takes via extension', 'overview') + stat(d.templates, 'script templates', 'templates') +
+          stat(d.transcribed || 0, 'takes with captions', 'overview') + stat(d.uploads || 0, 'uploaded to YouTube', 'settings') +
           stat(d.feedback_new, 'new feedback', 'feedback') + '</div>' +
           '<div class="ui-card" style="margin-top:16px"><h3 style="font-size:1rem">Last 14 days</h3><div class="ad-chart">' + d.days.map(function (x) {
             return '<div class="d" title="' + esc(x.day) + ': ' + x.takes + ' takes, ' + x.exports + ' exports"><i class="t" style="height:' + (x.takes / max * 100) + '%"></i><i class="x" style="height:' + (x.exports / max * 100) + '%"></i></div>';
@@ -2515,7 +3280,28 @@
       });
     }
 
-    var DRAW = { overview: overview, templates: templates, feedback: feedback, users: users, demo: demo };
+    function settings() {
+      return UI.api('admin_settings_get').then(function (s) {
+        var origin = location.origin;
+        body.innerHTML = '<form class="ad-set" data-settings><div class="ui-card" style="padding:18px"><h2 style="font-size:1.2rem">' + UI.icon('upload') + ' YouTube upload</h2>' +
+          '<p class="muted small">With a Google OAuth client ID, members upload straight from the publish kit: video, thumbnail and captions. Each person signs in with their own Google account in a popup; the video goes from their browser to YouTube, never through this app.</p>' +
+          '<label class="ui-field"><span>Google OAuth client ID</span><input type="text" name="google_client_id" placeholder="1234567890-abc123.apps.googleusercontent.com" value="' + esc(s.google_client_id) + '"></label>' +
+          (s.google_client_id ? '<p class="small" style="margin:8px 0 0"><span class="ui-badge good">' + UI.icon('check') + 'Switched on</span></p>' : '') +
+          '<h3 style="font-size:1rem;margin-top:18px">Set it up (about 5 minutes)</h3><ol>' +
+          '<li>Open <a class="vb-link" href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud console</a> and create a project, e.g. “VideoBlog Buddy”.</li>' +
+          '<li>APIs &amp; Services → Library → <b>YouTube Data API v3</b> → <b>Enable</b>.</li>' +
+          '<li>Google Auth Platform (OAuth consent screen): app name, your email, audience <b>External</b>. While it\'s in <b>Testing</b>, add each person who will upload as a <b>test user</b>.</li>' +
+          '<li>Clients → Create client → <b>Web application</b>. Under <b>Authorized JavaScript origins</b> add <code>' + esc(origin) + '</code> (and any other address the app runs on).</li>' +
+          '<li>Copy the <b>Client ID</b> (not the secret) into the box above and save.</li></ol>' +
+          '<p class="small muted" style="margin-top:12px">Good to know: until Google audits the project, YouTube keeps videos uploaded through the API <b>private</b>; switch them to public in YouTube Studio (or ask for an audit with Google\'s YouTube API audit form). Custom thumbnails need a verified channel (youtube.com/verify). Each project gets about 6 uploads a day on the free quota.</p></div>' +
+          '<div class="ui-card" style="padding:18px"><h2 style="font-size:1.2rem">' + UI.icon('puzzle') + ' Chrome Web Store</h2>' +
+          '<p class="muted small">Once the extension is published, paste its store page here: the app then shows an <b>Add to Chrome</b> button instead of the zip download.</p>' +
+          '<label class="ui-field"><span>Store page</span><input type="url" name="extension_store_url" placeholder="https://chromewebstore.google.com/detail/videoblog-buddy/…" value="' + esc(s.extension_store_url) + '"></label>' +
+          '<p class="small muted" style="margin-top:12px">The listing text, the permission answers, the images and a store-ready zip are in the project folder: <code>extension/store/</code> (see <code>PUBLISH.md</code>).</p>' +
+          '<div class="ui-row end" style="margin-top:16px"><button class="ui-btn primary" type="submit">' + UI.icon('check') + 'Save settings</button></div></div></form>';
+      });
+    }
+    var DRAW = { overview: overview, templates: templates, settings: settings, feedback: feedback, users: users, demo: demo };
 
     view.addEventListener('click', function (e) {
       if (e.target.closest('[data-tnew]')) { editTemplate(null); return; }
@@ -2558,6 +3344,11 @@
       if (fn) UI.api(fn, id, box.checked).then(function () { UI.toast('Saved', 'ok'); }, function (err) { box.checked = !box.checked; UI.toast(err.message, 'error'); });
     });
     view.addEventListener('submit', function (e) {
+      if (e.target.matches('[data-settings]')) {
+        e.preventDefault();
+        UI.busy(e.target.querySelector('[type=submit]'), UI.api('admin_settings_save', UI.formData(e.target))).then(function () { UI.toast('Settings saved', 'ok'); VB.getConfig(true); settings(); });
+        return;
+      }
       if (e.target.matches('[data-search]')) { e.preventDefault(); users(UI.formData(e.target).q); }
     });
     return DRAW[tab]();
@@ -2721,13 +3512,15 @@
 /* ===== edit.html ===== */
 (function () {
   var esc = UI.esc, clamp = VB.clamp;
-  var CARD_STYLES = [['app', 'App'], ['classic', 'Classic'], ['bold', 'Bold'], ['minimal', 'Minimal'], ['subscribe', 'Subscribe']];
+  var CARD_STYLES = [['app', 'App'], ['classic', 'Classic'], ['bold', 'Bold'], ['minimal', 'Minimal'], ['subscribe', 'Subscribe'], ['endscreen', 'End screen']];
+  var BOX_KINDS = [['blur', '🔒 Blur (hide)'], ['spot', '🔦 Spotlight'], ['box', '🟥 Red box']];
   var TEXT_STYLES = [['lower', 'Name tag'], ['callout', 'Callout'], ['caption', 'Subtitle'], ['title', 'Big title'], ['arrow', 'Sticky note']];
   var POS = [['tl', '↖'], ['tc', '↑'], ['tr', '↗'], ['c', '•'], ['bl', '↙'], ['bc', '↓'], ['br', '↘']];
 
   UI.page('edit', { title: 'Editor', auth: 'user' }, function (view, ctx) {
     var id = ctx.args[0], D = null, E = null, plan = null, srcs = {}, player = null, bar = null, sel = 0, tab = 'scene', dead = false;
-    var hist = [], fut = [], dirty = false, saving = false, envs = {}, trackSel = null, cutSel = null, zoomSel = -1, music = null;
+    var hist = [], fut = [], dirty = false, saving = false, envs = {}, trackSel = null, cutSel = null, zoomSel = -1, music = null, fileMusic = null;
+    var asr = null, wsel = null, lastNow = -1;
     view.innerHTML = '<div class="ui-wrap"><div class="ui-skel" style="height:460px"></div></div>';
     function q(s) { return view.querySelector(s); }
     function takeById(tid) { return D.takes.filter(function (t) { return t.id === tid; })[0]; }
@@ -2742,8 +3535,10 @@
         document.title = 'Edit: ' + r.video.title + ' · ' + UI.config.name;
         return Promise.all(r.takes.map(function (t) { return VB.openTake(t).then(function (s) { srcs[t.id] = s; }, function () { /* unreadable */ }); }));
       }).then(function () {
-        return VB.vault.get('music:' + id).then(function (m) { music = m; });
-      }).then(function () { draw(); if (dirty) save(); });
+        return VB.vault.get('music:' + id).then(function (m) { fileMusic = music = m; });
+      }).then(function () {
+        if (E.music.gen) return VB.beat(E.music.gen).then(function (b) { if (b) music = { blob: b, name: E.music.name, gen: E.music.gen }; }, function () { /* no beat */ });
+      }).then(function () { draw(); if (dirty) save(); VB.getConfig(); });
     }
 
     /* ---------------- frame */
@@ -2753,7 +3548,7 @@
         '<button class="ui-btn sm" data-undo title="Undo (Ctrl+Z)">' + UI.icon('undo') + '</button><button class="ui-btn sm" data-redo title="Redo (Ctrl+Shift+Z)">' + UI.icon('redo') + '</button>' +
         '<button class="ui-btn primary" data-export>' + UI.icon('download') + 'Export</button></div>' +
         '<div class="ed-main"><div><div class="ed-stage"><div class="cv"><canvas data-cv width="960" height="540"></canvas></div><div data-pbar></div></div></div>' +
-        '<div class="ui-card ed-insp"><nav class="ui-tabs">' + [['scene', 'Scene'], ['style', 'Style'], ['text', 'Text'], ['audio', 'Audio']].map(function (t) {
+        '<div class="ui-card ed-insp"><nav class="ui-tabs">' + [['scene', 'Scene'], ['style', 'Style'], ['text', 'Text'], ['words', 'Words'], ['audio', 'Audio']].map(function (t) {
           return '<button data-tab="' + t[0] + '" class="' + (tab === t[0] ? 'on' : '') + '">' + t[1] + '</button>'; }).join('') + '</nav><div class="ed-pane" data-pane></div></div></div>' +
         '<div class="ui-card ed-tl"><div class="ed-tools"><button class="ui-btn sm" data-addtake>' + UI.icon('film') + '<span class="lbl">Add take</span></button>' +
           '<button class="ui-btn sm" data-addcard>' + UI.icon('text') + '<span class="lbl">Title card</span></button><span class="sep"></span>' +
@@ -2764,7 +3559,7 @@
           '<span class="ui-spacer"></span><span class="small muted" data-total></span></div>' +
           '<div class="ed-strip" data-strip></div><div class="ed-track-wrap" data-trackwrap></div></div></div>';
       var cv = q('[data-cv]');
-      player = VB.Player(cv, { onTime: function (o) { if (bar) bar.update(o); drawTrack(); }, onState: function (p) { if (bar) bar.state(p); } });
+      player = VB.Player(cv, { onTime: function (o) { if (bar) bar.update(o); drawTrack(); wordsNow(); }, onState: function (p) { if (bar) bar.state(p); } });
       bar = VB.playerBar(player, { full: true, canvas: cv }); q('[data-pbar]').appendChild(bar.el);
       cv.addEventListener('click', function () { player.toggle(); });
       if (music) player.setMusic(music.blob);
@@ -2845,7 +3640,7 @@
         box.innerHTML = '<b style="color:var(--c-ink)">Cut ' + VB.fmtTime(cutSel[0], true) + '–' + VB.fmtTime(cutSel[1], true) + '</b><button class="ui-btn sm" data-restore>' + UI.icon('undo') + 'Restore this part</button><button class="ui-btn sm ghost" data-sel="clear">Close</button>';
       } else {
         box.innerHTML = '<span class="ed-legend"><span><i style="background:#9aa3ad"></i>sound</span><span><i style="background:repeating-linear-gradient(45deg,#e62117 0 3px,transparent 3px 6px)"></i>cut</span>' +
-          '<span><i style="background:#3ea6ff"></i>zoom</span><span><i style="background:#ffc400"></i>text</span><span><i style="background:#e62117;border-radius:50%"></i>click</span><span>⚑ marker</span></span>' +
+          '<span><i style="background:#3ea6ff"></i>zoom</span><span><i style="background:#ffc400"></i>text</span><span><i style="background:#a36bff"></i>blur/spotlight</span><span><i style="background:#e62117;border-radius:50%"></i>click</span><span>⚑ marker</span></span>' +
           '<span>Drag across the track to select a part. Drag the white edges to trim.</span>';
       }
     }
@@ -2885,6 +3680,8 @@
       });
       sceneZooms(sel).forEach(function (z, zi) { g.fillStyle = zi === zoomSel ? '#167ac6' : '#3ea6ff'; VB.rr(g, X(z.s), 4, Math.max(3, X(z.e) - X(z.s)), 6, 2); g.fill(); });
       (s.texts || []).forEach(function (tx) { g.fillStyle = '#ffc400'; VB.rr(g, X(tx.s), 11, Math.max(3, X(tx.e) - X(tx.s)), 5, 2); g.fill(); });
+      (s.boxes || []).forEach(function (bx) { g.fillStyle = '#a36bff'; VB.rr(g, X(bx.s), H - 17, Math.max(3, X(bx.e) - X(bx.s)), 4, 2); g.fill(); });
+      VB.wordsOf(t).forEach(function (w) { g.fillStyle = VB.isFiller(w[2]) ? '#e6a700' : (dark ? '#4d6f8f' : '#a8c4dd'); g.fillRect(X(w[0]), wy + wh + 2, Math.max(1, X(w[1]) - X(w[0]) - 1), 2); });
       (t.clicks || []).forEach(function (ck) { g.fillStyle = '#e62117'; g.beginPath(); g.arc(X(ck[0]), H - 7, 3, 0, 7); g.fill(); });
       (t.markers || []).forEach(function (m) {
         var x = X(m[0]); g.strokeStyle = m[1] === 'highlight' ? '#e6a700' : '#e62117'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x, 18); g.lineTo(x, H - 14); g.stroke();
@@ -2949,7 +3746,7 @@
       var s = scene(); return s && s.type === 'take' ? s['in'] : 0;
     }
     function selectScene(i, seek) {
-      sel = i; trackSel = null; cutSel = null; zoomSel = -1;
+      sel = i; trackSel = null; cutSel = null; zoomSel = -1; wsel = null; lastNow = -1;
       drawStrip(); drawPane(); drawTrackWrap();
       if (seek) { var ps = plan.scenes.filter(function (x) { return x.i === i; })[0]; if (ps) player.seek(ps.start + 0.01); }
     }
@@ -2958,8 +3755,10 @@
     function drawPane() {
       var box = q('[data-pane]'); if (!box) return;
       view.querySelectorAll('[data-tab]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === tab); });
-      box.innerHTML = ({ scene: paneScene, style: paneStyle, text: paneText, audio: paneAudio })[tab]();
+      box.innerHTML = ({ scene: paneScene, style: paneStyle, text: paneText, words: paneWords, audio: paneAudio })[tab]();
       if (tab === 'scene') focusThumbs();
+      if (tab === 'text') boxThumbs();
+      if (tab === 'words') { lastNow = -1; wordsNow(); }
     }
     function seg(name, list, cur) { return '<div class="ui-seg">' + list.map(function (o) { return '<button data-set="' + name + '" data-v="' + esc(o[0]) + '" class="' + (String(cur) === String(o[0]) ? 'on' : '') + '">' + o[1] + '</button>'; }).join('') + '</div>'; }
     function chips(name, list, cur) { return '<div class="ed-chips">' + list.map(function (o) { return '<button data-set="' + name + '" data-v="' + esc(o[0]) + '" class="' + (String(cur) === String(o[0]) ? 'on' : '') + '">' + o[1] + '</button>'; }).join('') + '</div>'; }
@@ -2976,7 +3775,8 @@
           '<label class="ui-field"><span>Second line</span><input type="text" data-f="card.sub" maxlength="140" value="' + esc(s.sub) + '"></label>' +
           '<div class="ed-2"><label class="ui-field"><span>Emoji</span><input type="text" data-f="card.emoji" maxlength="8" value="' + esc(s.emoji) + '"></label>' +
           '<label class="ui-field"><span>Colour</span><input type="color" data-f="card.color" value="' + esc(s.color) + '" style="width:100%;height:36px;padding:2px"></label></div>' +
-          '<label class="ui-field"><span>Length: ' + s.dur + ' s</span><input type="range" min="1" max="10" step="0.5" data-f="card.dur" value="' + s.dur + '"></label>' + moveBtns();
+          '<label class="ui-field"><span>Length: ' + s.dur + ' s</span><input type="range" min="1" max="' + (s.style === 'endscreen' ? 20 : 10) + '" step="0.5" data-f="card.dur" value="' + s.dur + '"></label>' +
+          (s.style === 'endscreen' ? '<p class="small muted" style="margin:0">YouTube end screens run 5 to 20 seconds. In YouTube Studio, put your end screen videos and the subscribe button over the boxes.</p>' : '') + moveBtns();
       }
       var t = takeById(s.take) || { duration: 0, label: '?', clicks: [] }, zs = sceneZooms(sel), manual = s.zooms && s.zooms.length;
       var cutTotal = (s.cuts || []).reduce(function (a, c) { return a + (c[1] - c[0]); }, 0);
@@ -3041,8 +3841,17 @@
     function paneText() {
       var s = scene();
       if (!s || s.type !== 'take') return '<p class="ed-empty">Text goes on takes. Select a take in the strip (title cards have their own text in the Scene tab).</p>';
-      var list = s.texts || [];
-      return '<div><h4>Add text at the playhead</h4>' + chips('newtext', TEXT_STYLES, '') + '<p class="small muted" style="margin:6px 0 0">Name tags introduce you; callouts point at features; subtitles say it in words.</p></div>' +
+      var list = s.texts || [], boxes = s.boxes || [], tk = takeById(s.take) || {};
+      var boxHtml = '<div><h4>Hide or highlight a spot</h4>' + chips('newbox', BOX_KINDS, '') + '<p class="small muted" style="margin:6px 0 0">Blur passwords, emails and API keys before you publish. A spotlight dims everything else; a red box points at a button.</p></div>' +
+        boxes.map(function (bx, i) {
+          var src = srcs[s.take], ar = src && src.main ? src.main.w / src.main.h : 16 / 9;
+          return '<div class="ed-txt" data-bi="' + i + '"><div class="ui-row between"><b class="small">' + esc(BOX_KINDS.filter(function (k) { return k[0] === bx.kind; })[0][1]) + ' · ' + VB.fmtTime(bx.s, true) + '–' + VB.fmtTime(bx.e, true) + '</b>' +
+            '<span><button class="ui-btn ghost sm" data-bwhole title="From the start to the end of this scene">Whole scene</button><button class="ui-btn ghost sm" data-bdel aria-label="Delete">' + UI.icon('trash') + '</button></span></div>' +
+            '<div class="ed-focus ed-boxpick" data-boxpick style="aspect-ratio:' + ar.toFixed(4) + '"><canvas width="320" height="' + Math.round(320 / ar) + '"></canvas><b></b></div>' +
+            '<p class="small muted" style="margin:0">Drag on the picture to draw the area.</p>' + seg('box.kind:' + i, BOX_KINDS.map(function (k) { return [k[0], k[1].split(' ')[0]]; }), bx.kind) +
+            '<div class="ed-2"><label class="ui-field"><span>From</span><input type="number" step="0.1" data-bf="s" value="' + bx.s + '"></label><label class="ui-field"><span>To</span><input type="number" step="0.1" data-bf="e" value="' + bx.e + '"></label></div></div>';
+        }).join('') + (tk.mode === 'cam' ? '' : '');
+      return boxHtml + '<div><h4>Add text at the playhead</h4>' + chips('newtext', TEXT_STYLES, '') + '<p class="small muted" style="margin:6px 0 0">Name tags introduce you; callouts point at features; subtitles say it in words.</p></div>' +
         (list.length ? list.map(function (tx, i) {
           return '<div class="ed-txt" data-ti="' + i + '"><div class="ui-row between"><b class="small">' + esc(TEXT_STYLES.filter(function (x) { return x[0] === tx.style; })[0][1]) + ' · ' + VB.fmtTime(tx.s, true) + '–' + VB.fmtTime(tx.e, true) + '</b>' +
             '<span><button class="ui-btn ghost sm" data-tgo aria-label="Play from here">' + UI.icon('play') + '</button><button class="ui-btn ghost sm" data-tdel aria-label="Delete">' + UI.icon('trash') + '</button></span></div>' +
@@ -3053,14 +3862,172 @@
         }).join('') : '<p class="ed-empty">No text on this take yet.</p>');
     }
     function paneAudio() {
-      return '<label class="ui-field"><span>Voice volume: ' + Math.round((E.voice == null ? 1 : E.voice) * 100) + '%</span><input type="range" min="0" max="2" step="0.05" data-f="voice" value="' + (E.voice == null ? 1 : E.voice) + '"></label>' +
-        '<div><h4>Background music</h4>' + (music ? '<p class="small" style="margin:0 0 8px">' + UI.icon('music') + ' ' + esc(music.name || E.music.name || 'music') + '</p>' : '<p class="small muted" style="margin:0 0 8px">Pick an audio file you have the rights to use (YouTube Audio Library is a good source). It stays on this computer.</p>') +
-          '<div class="ui-row"><label class="ui-btn sm" style="cursor:pointer">' + UI.icon('upload') + (music ? 'Change' : 'Choose music') + '<input type="file" accept="audio/*" data-music hidden></label>' + (music ? '<button class="ui-btn sm ghost" data-nomusic>Remove</button>' : '') + '</div>' +
+      var gen = E.music.gen || '';
+      return '<div><h4>Voice</h4><label class="ui-field"><span>Voice volume: ' + Math.round((E.voice == null ? 1 : E.voice) * 100) + '%</span><input type="range" min="0" max="2" step="0.05" data-f="voice" value="' + (E.voice == null ? 1 : E.voice) + '"></label>' +
+          '<label class="ui-check"><input type="checkbox" data-f="voice_fx"' + (E.voice_fx === 'clean' ? ' checked' : '') + '><span>Clean voice: less rumble, clearer, more even (in the export)</span></label></div>' +
+        '<div><h4>Background music</h4><div class="ed-beats"><button data-beat="" class="' + (!gen && !fileMusic ? 'on' : '') + '">🔇 No music<small>Just your voice</small></button>' +
+          VB.BEATS.map(function (b) { return '<button data-beat="' + b.key + '" class="' + (gen === b.key ? 'on' : '') + '">' + b.emoji + ' ' + esc(b.name) + '<small>' + esc(b.blurb) + '</small></button>'; }).join('') + '</div>' +
+          '<p class="small muted" style="margin:8px 0">Buddy beats are made by the app, free to use anywhere. Or use your own track:</p>' +
+          (music && !gen ? '<p class="small" style="margin:0 0 8px">' + UI.icon('music') + ' ' + esc(music.name || E.music.name || 'music') + '</p>' : '') +
+          '<div class="ui-row"><label class="ui-btn sm" style="cursor:pointer">' + UI.icon('upload') + (fileMusic ? 'Change file' : 'Choose a music file') + '<input type="file" accept="audio/*" data-music hidden></label>' + (music ? '<button class="ui-btn sm ghost" data-nomusic>Remove music</button>' : '') + '</div>' +
           '<label class="ui-field" style="margin-top:8px"><span>Music volume: ' + Math.round(E.music.vol * 100) + '%</span><input type="range" min="0" max="1" step="0.05" data-f="music.vol" value="' + E.music.vol + '"></label>' +
           '<label class="ui-check"><input type="checkbox" data-f="music.duck"' + (E.music.duck ? ' checked' : '') + '><span>Quieter while you talk (in the export)</span></label></div>' +
+        '<div><h4>Sound effects</h4><label class="ui-check"><input type="checkbox" data-f="sfx.clicks"' + (E.sfx.clicks ? ' checked' : '') + '><span>A soft click sound on every recorded click</span></label>' +
+          '<label class="ui-check"><input type="checkbox" data-f="sfx.whoosh"' + (E.sfx.whoosh ? ' checked' : '') + '><span>A whoosh between scenes</span></label>' +
+          '<label class="ui-field" style="margin-top:6px"><span>Effects volume: ' + Math.round(E.sfx.vol * 100) + '%</span><input type="range" min="0" max="1" step="0.05" data-f="sfx.vol" value="' + E.sfx.vol + '"></label></div>' +
         '<div><h4>Remove pauses everywhere</h4><p class="small muted" style="margin:0 0 8px">Cuts every silence longer than this from all takes, keeping a little air around your words.</p>' +
           '<label class="ui-field"><span>Pauses longer than <b data-gapv>' + (UI.store.get('ed.gap', 0.8)).toFixed(1) + '</b> s</span><input type="range" min="0.4" max="2.5" step="0.1" data-gap value="' + UI.store.get('ed.gap', 0.8) + '"></label>' +
           '<button class="ui-btn sm" data-pausesall>' + UI.icon('scissors') + 'Remove pauses in every take</button></div>';
+    }
+
+    /* ---------------- words: captions + transcript */
+    function wordState(s, w) {
+      var mid = (w[0] + w[1]) / 2;
+      if (mid < s['in'] || mid > s.out) return 'cut';
+      return (s.cuts || []).some(function (c) { return mid >= c[0] && mid <= c[1]; }) ? 'cut' : '';
+    }
+    function paneWords() {
+      var c = E.captions, s = scene();
+      var caps = '<div><h4>Captions on the video</h4><label class="ui-check"><input type="checkbox" data-f="captions.on"' + (c.on ? ' checked' : '') + '><span>Show captions (drawn into the exported video)</span></label>' +
+        (c.on ? '<div style="margin-top:8px">' + chips('captions.style', VB.CAPTION_STYLES, c.style) + '</div><div style="margin-top:8px">' + seg('captions.pos', [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']], c.pos) + '</div>' +
+          '<div class="ed-2" style="margin-top:8px"><label class="ui-field"><span>Size</span><input type="range" min="0.6" max="1.8" step="0.05" data-f="captions.size" value="' + c.size + '"></label>' +
+          '<label class="ui-field"><span>Highlight</span><input type="color" data-f="captions.color" value="' + esc(c.color) + '" style="width:100%;height:36px;padding:2px"></label></div>' +
+          '<label class="ui-check"><input type="checkbox" data-f="captions.upper"' + (c.upper ? ' checked' : '') + '><span>ALL CAPS</span></label>' : '') + '</div>';
+      if (!s || s.type !== 'take') return caps + '<p class="ed-empty">Select a take in the strip to see and edit its words.</p>';
+      var t = takeById(s.take) || {}, ws = VB.wordsOf(t), src = srcs[s.take];
+      if (asr && asr.tid === t.id) {
+        return caps + '<div class="ed-asr"><h4>Writing down “' + esc(t.label) + '”…</h4><div class="ed-prog" data-asrp><i style="width:' + (asr.f * 100).toFixed(1) + '%"></i></div><p class="small muted" data-asrm style="margin:0">' + esc(asr.msg) + '</p></div>';
+      }
+      if (!ws.length) {
+        var models = Object.keys(VB.MODELS).map(function (k) { return '<option value="' + k + '"' + (UI.store.get('ed.asr', 'en') === k ? ' selected' : '') + '>' + esc(VB.MODELS[k].label) + '</option>'; }).join('');
+        return caps + '<div class="ed-asr"><h4>Words in “' + esc(t.label) + '”</h4><p class="small" style="margin:0">Write down what you said, right here on your computer. Then cut by deleting words, remove the “um”s, and show captions.</p>' +
+          (t.sample ? '' : '<label class="ui-field"><span>Speech model</span><select data-asrmodel>' + models + '</select></label>') +
+          '<div class="ui-row"><button class="ui-btn primary sm" data-asr' + (src && src.missing ? ' disabled' : '') + '>' + UI.icon('text') + 'Write captions</button>' +
+          (D.video.script && !t.sample ? '<button class="ui-btn sm" data-align title="Quick and approximate: spreads your script over the parts where you speak">Use my script instead</button>' : '') + '</div>' +
+          (t.sample ? '' : '<p class="small muted" style="margin:0">The first time, your browser downloads the speech model (once, from Hugging Face). Your recording never leaves this computer.</p>') + '</div>';
+      }
+      var fillers = VB.fillerCuts(ws, s['in'], s.out).filter(function (cu) { return !(s.cuts || []).some(function (x) { return cu[0] >= x[0] - 0.01 && cu[1] <= x[1] + 0.01; }); }).length;
+      var html = '', prevEnd = null;
+      ws.forEach(function (w, i) {
+        if (prevEnd != null && w[0] - prevEnd > 1.3) html += '<br><br>';
+        var cls = [wordState(s, w), VB.isFiller(w[2]) ? 'fill' : '', wsel && i >= wsel.a && i <= wsel.b ? 'sel' : ''].filter(Boolean).join(' ');
+        html += '<span data-w="' + i + '"' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(w[2]) + '</span> ';
+        prevEnd = w[1];
+      });
+      return caps + '<div><div class="ui-row between"><h4 style="margin:0">Words in “' + esc(t.label) + '”</h4><span class="small muted">' + UI.plural(ws.length, 'word') + (t.words.src === 'script' ? ' · from the script' : '') + '</span></div>' +
+        '<div class="ed-words" data-words style="margin-top:6px">' + html + '</div>' +
+        '<div class="ed-wbar" data-wbar style="margin-top:6px">' + wbar(ws) + '</div>' +
+        '<div class="ui-row" style="margin-top:6px"><button class="ui-btn sm" data-fillers' + (fillers ? '' : ' disabled') + '>' + UI.icon('scissors') + 'Remove filler words' + (fillers ? ' (' + fillers + ')' : '') + '</button>' +
+          '<button class="ui-btn sm" data-srt title="Subtitles for YouTube (matches this edit)">' + UI.icon('download') + '.srt</button>' +
+          '<button class="ui-btn sm ghost" data-asr>' + UI.icon('undo') + 'Write again</button><button class="ui-btn sm ghost danger" data-wdel aria-label="Delete the words">' + UI.icon('trash') + '</button></div></div>';
+    }
+    function wbar(ws) {
+      if (!wsel) return '<span class="small muted">Click a word to jump there. Shift-click another to select the words between, then cut them (or press Delete).</span>';
+      var n = wsel.b - wsel.a + 1;
+      return '<b>' + UI.plural(n, 'word') + ' selected</b><button class="ui-btn sm primary" data-wcut>' + UI.icon('scissors') + 'Cut</button><button class="ui-btn sm" data-wkeep>' + UI.icon('undo') + 'Restore</button>' +
+        '<button class="ui-btn sm" data-wfix>' + UI.icon('edit') + 'Fix the words</button><button class="ui-btn sm ghost" data-wclear aria-label="Clear the selection">✕</button>';
+    }
+    function wordsNow() {
+      if (tab !== 'words') return;
+      var box = q('[data-words]'); if (!box) return;
+      var s = scene(), L = plan && player && VB.locate(plan, player.o), i = -1;
+      if (L && s && L.s.i === sel && L.srcT != null) { var ws = VB.wordsOf(takeById(s.take)); for (var k = 0; k < ws.length; k++) { if (L.srcT >= ws[k][0] && L.srcT < ws[k][1] + 0.05) { i = k; break; } if (ws[k][0] > L.srcT) break; } }
+      if (i === lastNow) return;
+      var old = box.querySelector('.now'); if (old) old.classList.remove('now');
+      var el = i >= 0 && box.querySelector('[data-w="' + i + '"]');
+      if (el) { el.classList.add('now'); if (player.playing && (el.offsetTop < box.scrollTop || el.offsetTop > box.scrollTop + box.clientHeight - 30)) box.scrollTop = el.offsetTop - 40; }
+      lastNow = i;
+    }
+    function saveWords(t, words) {
+      return UI.api('take_update', t.id, { words: words }).then(function (r) { Object.assign(t, r.take); return t; });
+    }
+    function writeWords(t, how) {
+      var src = srcs[t.id];
+      if (!src || src.missing) { UI.toast('This take is on another computer: re-link its file first.', 'error'); return; }
+      asr = { tid: t.id, f: 0.02, msg: 'Starting…' }; wsel = null; drawPane();
+      var job = how === 'script'
+        ? VB.analyze(src).then(function (an) { var w = VB.alignScript(D.video.script, an, 0, t.duration); if (!w.length) throw new Error('The script has no spoken lines yet.'); return { src: 'script', lang: 'en', words: w }; })
+        : VB.transcribe(src, UI.store.get('ed.asr', 'en'), function (f, msg) {
+          if (!asr || asr.tid !== t.id) return; asr.f = f; asr.msg = msg;
+          var p = q('[data-asrp] i'), m2 = q('[data-asrm]'); if (p) p.style.width = (f * 100).toFixed(1) + '%'; if (m2) m2.textContent = msg;
+        });
+      job.then(function (wd) {
+        if (!wd.words.length) throw new Error('No speech found in this take.');
+        return saveWords(t, wd);
+      }).then(function () {
+        asr = null;
+        var turnOn = !E.captions.on;
+        if (turnOn) change(function () { E.captions.on = true; }); else { rebuild(); }
+        UI.toast('Wrote ' + UI.plural(VB.wordsOf(t).length, 'word') + (turnOn ? '. Captions are on.' : ''), 'ok');
+      }, function (err) { asr = null; if (!dead) drawPane(); UI.toast(err.message || 'Couldn\'t write the captions.', 'error'); });
+    }
+    function downloadSrt() {
+      var cues = VB.planCues(plan);
+      if (!cues.length) { UI.toast('No words in this edit yet. Write captions for a take first.'); return; }
+      VB.download(new Blob([VB.toSRT(cues)], { type: 'application/x-subrip' }), VB.slug(D.video.title) + '.srt');
+    }
+    function boxThumbs() {
+      var s = scene(); if (!s || s.type !== 'take' || !s.boxes || !s.boxes.length) return;
+      var src = srcs[s.take];
+      view.querySelectorAll('[data-bi]').forEach(function (el) {
+        var bx = s.boxes[+el.getAttribute('data-bi')], f = el.querySelector('[data-boxpick]'); if (!f || !bx) return;
+        var c = f.querySelector('canvas'), g = c.getContext('2d');
+        g.fillStyle = '#222'; g.fillRect(0, 0, c.width, c.height);
+        if (src && !src.missing) {
+          if (src.kind === 'sample') src.frame((bx.s + bx.e) / 2);
+          try { g.drawImage(src.main.img, 0, 0, c.width, c.height); } catch (e) { /* not ready */ }
+        }
+        var b = f.querySelector('b'); b.style.left = bx.x * 100 + '%'; b.style.top = bx.y * 100 + '%'; b.style.width = bx.w * 100 + '%'; b.style.height = bx.h * 100 + '%';
+      });
+    }
+    function addBox(kind) {
+      var s = scene(); if (!s || s.type !== 'take') { UI.toast('Select a take first.'); return; }
+      var t = playheadSrc(), dur = takeById(s.take).duration;
+      change(function () {
+        s.boxes = s.boxes || [];
+        s.boxes.push({ id: VB.uid('b').slice(0, 20), s: +Math.max(0, t).toFixed(2), e: +Math.min(dur, t + (kind === 'blur' ? 6 : 3.5)).toFixed(2), x: 0.35, y: 0.35, w: 0.3, h: 0.2, kind: kind });
+      });
+      tab = 'text'; drawPane();
+    }
+    function bindBoxPick() {
+      var drag = null;
+      view.addEventListener('pointerdown', function (e) {
+        var f = e.target.closest && e.target.closest('[data-boxpick]'); if (!f) return;
+        var r = f.getBoundingClientRect(), bi = +f.closest('[data-bi]').getAttribute('data-bi');
+        try { f.setPointerCapture(e.pointerId); } catch (x) { /* synthetic */ }
+        drag = { f: f, r: r, bi: bi, x0: clamp((e.clientX - r.left) / r.width, 0, 1), y0: clamp((e.clientY - r.top) / r.height, 0, 1) };
+        drag.box = { x: drag.x0, y: drag.y0, w: 0, h: 0 };
+        e.preventDefault();
+      });
+      view.addEventListener('pointermove', function (e) {
+        if (!drag) return;
+        var x = clamp((e.clientX - drag.r.left) / drag.r.width, 0, 1), y = clamp((e.clientY - drag.r.top) / drag.r.height, 0, 1);
+        drag.box = { x: Math.min(x, drag.x0), y: Math.min(y, drag.y0), w: Math.abs(x - drag.x0), h: Math.abs(y - drag.y0) };
+        var b = drag.f.querySelector('b'); b.style.left = drag.box.x * 100 + '%'; b.style.top = drag.box.y * 100 + '%'; b.style.width = drag.box.w * 100 + '%'; b.style.height = drag.box.h * 100 + '%';
+      });
+      view.addEventListener('pointerup', function () {
+        if (!drag) return;
+        var d = drag; drag = null;
+        if (d.box.w < 0.02 || d.box.h < 0.02) { boxThumbs(); return; }
+        change(function () { var bx = scene().boxes[d.bi]; bx.x = +d.box.x.toFixed(4); bx.y = +d.box.y.toFixed(4); bx.w = +d.box.w.toFixed(4); bx.h = +d.box.h.toFixed(4); });
+        boxThumbs();
+        if (!player.playing) { var bx2 = scene().boxes[d.bi]; seekSrc(clamp(playheadSrc(), bx2.s, bx2.e)); }
+      });
+    }
+    bindBoxPick();
+    function setBeat(key) {
+      if (!key) {
+        music = fileMusic; player.setMusic(music && music.blob);
+        change(function () { E.music.gen = ''; E.music.name = fileMusic ? (fileMusic.name || '').slice(0, 120) : ''; }); drawPane(); return;
+      }
+      var info = VB.beatInfo(key);
+      UI.toast('Making “' + info.name + '”…');
+      VB.beat(key).then(function (blob) {
+        if (dead) return;
+        music = { blob: blob, name: info.name, gen: key }; player.setMusic(blob);
+        change(function () { E.music.gen = key; E.music.name = ('Buddy beat: ' + info.name).slice(0, 120); if (E.music.vol < 0.05) E.music.vol = 0.25; });
+        drawPane(); UI.toast('🎵 ' + info.name + ' is on. Press play to hear it.', 'ok');
+      }, function () { UI.toast('This browser couldn\'t make the music.', 'error'); });
     }
 
     /* ---------------- actions */
@@ -3147,13 +4114,16 @@
           running = false;
           var name = VB.slug(D.video.title) + (E.aspect === '9:16' ? '-vertical' : '') + '.' + out.ext;
           VB.download(out.blob, name);
-          var url = URL.createObjectURL(out.blob);
+          VB.lastExport[id] = { blob: out.blob, name: name, ext: out.ext, aspect: E.aspect, seconds: out.seconds, at: Date.now() };
+          var url = URL.createObjectURL(out.blob), hasWords = VB.planCues(plan).length > 0;
           m.el.querySelector('[data-x2]').hidden = true;
           var x3 = m.el.querySelector('[data-x3]'); x3.hidden = false;
           x3.innerHTML = '<video class="ed-expv" controls playsinline src="' + url + '"></video><p style="margin:12px 0"><b>' + esc(name) + '</b> · ' + VB.fmtBytes(out.blob.size) + ' · ' + out.width + '×' + out.height + '. It\'s in your Downloads.</p>' +
-            '<div class="ui-row"><button class="ui-btn" data-again>' + UI.icon('download') + 'Download again</button><a class="ui-btn primary" href="#video/' + esc(id) + '/publish">' + UI.icon('rocket') + 'Next: publish kit</a>' +
-            '<a class="ui-btn" href="#video/' + esc(id) + '/thumbnail">' + UI.icon('image') + 'Make the thumbnail</a></div>';
+            '<div class="ui-row"><a class="ui-btn primary" href="#video/' + esc(id) + '/publish">' + UI.icon('upload') + 'Publish kit + upload to YouTube</a>' +
+            '<a class="ui-btn" href="#video/' + esc(id) + '/thumbnail">' + UI.icon('image') + 'Make the thumbnail</a>' +
+            '<button class="ui-btn" data-again>' + UI.icon('download') + 'Download again</button>' + (hasWords ? '<button class="ui-btn" data-srtx>' + UI.icon('download') + 'Captions (.srt)</button>' : '') + '</div>';
           x3.querySelector('[data-again]').onclick = function () { VB.download(out.blob, name); };
+          if (hasWords) x3.querySelector('[data-srtx]').onclick = downloadSrt;
           return UI.apiQuiet('export_logged', id, { seconds: out.seconds, aspect: E.aspect, format: out.ext, quality: Q }).then(function (r) {
             if (r.video) D.video.status = r.video.status;
             if (r.new_badges && r.new_badges.length) VB.badgePop(r.new_badges); else VB.confetti(60);
@@ -3212,6 +4182,61 @@
       }
       if (t.closest('[data-zoomhere]')) { addZoomAt(trackSel ? trackSel.a + 0.3 : playheadSrc()); return; }
       if (t.closest('[data-texthere]')) { addTextAt('callout'); return; }
+      if ((b = t.closest('[data-w]'))) {
+        var wi = +b.getAttribute('data-w'), sw = scene(), wsl = VB.wordsOf(takeById(sw.take));
+        if (e.shiftKey && wsel) wsel = { a: Math.min(wsel.a, wi), b: Math.max(wsel.b, wi), anchor: wsel.anchor };
+        else { wsel = { a: wi, b: wi, anchor: wi }; seekSrc(Math.max(sw['in'], wsl[wi][0] - 0.05)); }
+        view.querySelectorAll('[data-w].sel').forEach(function (x) { x.classList.remove('sel'); });
+        for (var wk = wsel.a; wk <= wsel.b; wk++) { var se = q('[data-w="' + wk + '"]'); if (se) se.classList.add('sel'); }
+        var wb = q('[data-wbar]'); if (wb) wb.innerHTML = wbar(wsl);
+        return;
+      }
+      if (t.closest('[data-wclear]')) { wsel = null; drawPane(); return; }
+      if (t.closest('[data-wcut]') || t.closest('[data-wkeep]')) {
+        var sc2 = scene(), wl = VB.wordsOf(takeById(sc2.take)), cutR = VB.wordCut(wl, wsel.a, wsel.b), keepIt = !!t.closest('[data-wkeep]');
+        change(function () {
+          if (keepIt) {
+            var nk = [];
+            (sc2.cuts || []).forEach(function (c) { if (c[1] <= cutR[0] || c[0] >= cutR[1]) nk.push(c); else { if (c[0] < cutR[0]) nk.push([c[0], cutR[0]]); if (c[1] > cutR[1]) nk.push([cutR[1], c[1]]); } });
+            sc2.cuts = VB.mergeCuts(nk, sc2['in'], sc2.out);
+          } else sc2.cuts = VB.mergeCuts((sc2.cuts || []).concat([cutR]), sc2['in'], sc2.out);
+        });
+        wsel = null; drawPane();
+        return;
+      }
+      if (t.closest('[data-wfix]')) {
+        var tk6 = takeById(scene().take), wl2 = VB.wordsOf(tk6), a6 = wsel.a, b6 = wsel.b;
+        var cur6 = wl2.slice(a6, b6 + 1).map(function (w) { return w[2]; }).join(' ');
+        var m6 = UI.modal('<h2>Fix the words</h2><p class="muted small">Type what you really said. Captions and the .srt file use this.</p><textarea data-fixtxt rows="3" style="width:100%">' + esc(cur6) + '</textarea>' +
+          '<div class="ui-row end" style="margin-top:12px"><button class="ui-btn ghost" data-close>Cancel</button><button class="ui-btn primary" data-fixok>Save</button></div>');
+        var ta6 = m6.el.querySelector('[data-fixtxt]'); ta6.focus(); ta6.select();
+        m6.el.querySelector('[data-fixok]').onclick = function () {
+          var parts = ta6.value.trim().split(/\s+/).filter(Boolean), old = wl2.slice(a6, b6 + 1), fresh;
+          fresh = parts.length === old.length ? old.map(function (w, k) { return [w[0], w[1], parts[k].slice(0, 40)]; }) : VB.spread(parts.join(' '), old[0][0], old[old.length - 1][1]);
+          var all = wl2.slice(0, a6).concat(fresh, wl2.slice(b6 + 1));
+          UI.busy(this, saveWords(tk6, Object.assign({}, tk6.words, { words: all }))).then(function () { m6.close(); wsel = null; rebuild(); UI.toast('Words fixed', 'ok'); });
+        };
+        return;
+      }
+      if (t.closest('[data-fillers]')) {
+        var sc3 = scene(), fc = VB.fillerCuts(VB.wordsOf(takeById(sc3.take)), sc3['in'], sc3.out);
+        change(function () { sc3.cuts = VB.mergeCuts((sc3.cuts || []).concat(fc), sc3['in'], sc3.out); });
+        UI.toast('Cut ' + UI.plural(fc.length, 'filler word'), 'ok');
+        return;
+      }
+      if (t.closest('[data-srt]')) { downloadSrt(); return; }
+      if (t.closest('[data-asr]')) { writeWords(takeById(scene().take), 'asr'); return; }
+      if (t.closest('[data-align]')) { writeWords(takeById(scene().take), 'script'); return; }
+      if (t.closest('[data-wdel]')) {
+        var tk7 = takeById(scene().take);
+        UI.confirm({ title: 'Delete the words of “' + tk7.label + '”?', text: 'The captions for this take go too. Cuts you made stay.', ok: 'Delete', danger: true }).then(function (y) {
+          if (y) saveWords(tk7, null).then(function () { wsel = null; rebuild(); });
+        });
+        return;
+      }
+      if ((b = t.closest('[data-beat]'))) { setBeat(b.getAttribute('data-beat')); return; }
+      if ((b = t.closest('[data-bdel]'))) { var bi = +b.closest('[data-bi]').getAttribute('data-bi'); change(function () { scene().boxes.splice(bi, 1); }); return; }
+      if ((b = t.closest('[data-bwhole]'))) { var bi2 = +b.closest('[data-bi]').getAttribute('data-bi'); change(function () { var sc4 = scene(), bx = sc4.boxes[bi2]; bx.s = sc4['in']; bx.e = sc4.out; }); return; }
       if ((b = t.closest('[data-sel]'))) {
         var k = b.getAttribute('data-sel'), s = scene(), r2 = trackSel;
         if (k === 'clear') { trackSel = null; cutSel = null; drawTrack(); tinfo(); return; }
@@ -3231,6 +4256,8 @@
       if ((b = t.closest('[data-set]'))) {
         var name = b.getAttribute('data-set'), v = b.getAttribute('data-v');
         if (name === 'newtext') { addTextAt(v); return; }
+        if (name === 'newbox') { addBox(v); return; }
+        if (name.indexOf('box.kind:') === 0) { var bk = +name.split(':')[1]; change(function () { scene().boxes[bk].kind = v; }); return; }
         change(function () {
           if (name === 'sc.cam') { var s2 = scene(); s2.cam = v === '' ? null : v === 'hide' ? { hidden: true } : { pos: v, hidden: false }; if (!s2.cam) delete s2.cam; return; }
           if (name === 'aspect') { E.aspect = v; if (v === '9:16' && (E.layout === 'pip' || E.layout === 'side')) E.layout = 'stack'; if (v === '16:9' && E.layout === 'stack') E.layout = 'pip'; E.progress = v === '9:16' ? true : E.progress; return; }
@@ -3252,7 +4279,7 @@
       if ((b = t.closest('[data-tdel]'))) { var ti = +b.closest('[data-ti]').getAttribute('data-ti'); change(function () { scene().texts.splice(ti, 1); }); return; }
       if ((b = t.closest('[data-tgo]'))) { var tx = scene().texts[+b.closest('[data-ti]').getAttribute('data-ti')]; seekSrc(Math.max(0, tx.s - 0.3)); player.play(); return; }
       if ((b = t.closest('[data-tpos]'))) { var ti2 = +b.closest('[data-ti]').getAttribute('data-ti'); change(function () { scene().texts[ti2].pos = b.getAttribute('data-tpos'); }); return; }
-      if (t.closest('[data-nomusic]')) { VB.vault.del('music:' + id); music = null; player.setMusic(null); change(function () { E.music.name = ''; }); drawPane(); }
+      if (t.closest('[data-nomusic]')) { VB.vault.del('music:' + id); music = null; fileMusic = null; player.setMusic(null); change(function () { E.music.name = ''; E.music.gen = ''; }); drawPane(); }
     });
     function readVal(el) { return el.type === 'checkbox' ? el.checked : el.type === 'range' || el.type === 'number' || el.tagName === 'SELECT' && /speed/.test(el.getAttribute('data-f') || '') ? +el.value : el.value; }
     view.addEventListener('input', function (e) {
@@ -3266,6 +4293,7 @@
           if (path === 'voice') lbl.textContent = 'Voice volume: ' + Math.round(v * 100) + '%';
           if (path === 'music.vol') lbl.textContent = 'Music volume: ' + Math.round(v * 100) + '%';
           if (path === 'zoom.level') lbl.textContent = 'How close: ' + (+v).toFixed(1) + '×';
+          if (path === 'sfx.vol') lbl.textContent = 'Effects volume: ' + Math.round(v * 100) + '%';
         }
         if (!player.playing) player.seek(player.o);
         return;
@@ -3276,8 +4304,16 @@
     });
     view.addEventListener('change', function (e) {
       var t = e.target;
+      if (t.matches('[data-asrmodel]')) { UI.store.set('ed.asr', t.value); return; }
+      if (t.matches('[data-bf]')) {
+        var bi3 = +t.closest('[data-bi]').getAttribute('data-bi'), bk3 = t.getAttribute('data-bf');
+        change(function () { var x = scene().boxes[bi3]; x[bk3] = Math.max(0, +t.value || 0); if (x.e - x.s < 0.3) x.e = x.s + 0.3; });
+        return;
+      }
       if (t.matches('[data-f]') && !(t.type === 'range' || t.type === 'text' || t.type === 'color')) {
         var path = t.getAttribute('data-f'), v = readVal(t);
+        if (path === 'voice_fx') v = t.checked ? 'clean' : 'off';
+        if (path === 'captions.on' || path === 'captions.upper') { change(function () { setPath(path, v); }); drawPane(); return; }
         if (path === 'sc.in' || path === 'sc.out') { var s = scene(), td = takeById(s.take).duration; v = clamp(+v || 0, 0, td); if (path === 'sc.in') v = Math.min(v, s.out - 0.3); else v = Math.max(v, s['in'] + 0.3); v = +v.toFixed(2); }
         change(function () { setPath(path, v); });
         return;
@@ -3295,7 +4331,7 @@
       }
       if (t.matches('[data-music]')) {
         var f = t.files[0]; if (!f) return;
-        VB.vault.put('music:' + id, f, { name: f.name }).then(function () { music = { blob: f, name: f.name }; player.setMusic(f); change(function () { E.music.name = f.name.slice(0, 120); }); drawPane(); UI.toast('Music added', 'ok'); });
+        VB.vault.put('music:' + id, f, { name: f.name }).then(function () { fileMusic = music = { blob: f, name: f.name }; player.setMusic(f); change(function () { E.music.name = f.name.slice(0, 120); E.music.gen = ''; }); drawPane(); UI.toast('Music added', 'ok'); });
       }
     });
     /* Reorder scenes by dragging them in the strip. */
@@ -3314,6 +4350,7 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { if (typing) return; e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { if (typing) return; e.preventDefault(); redo(); return; }
       if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+      if ((e.key === 'Delete' || e.key === 'Backspace') && wsel && tab === 'words') { e.preventDefault(); var wc = q('[data-wcut]'); if (wc) wc.click(); return; }
       if (e.key === ' ') { e.preventDefault(); player.toggle(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); player.seek(Math.max(0, player.o - (e.shiftKey ? 5 : 1))); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); player.seek(player.o + (e.shiftKey ? 5 : 1)); }
@@ -3322,7 +4359,8 @@
     document.addEventListener('keydown', onKey);
     function onResize() { drawTrack(); }
     window.addEventListener('resize', onResize);
-    VB._editPage = { plan: function () { return plan; }, edit: function () { return E; }, player: function () { return player; }, select: selectScene, save: save };
+    VB._editPage = { plan: function () { return plan; }, edit: function () { return E; }, player: function () { return player; }, select: selectScene, save: save,
+      tab: function (k) { tab = k; drawPane(); }, takes: function () { return D.takes; }, music: function () { return music; } };
     return {
       ready: load(),
       destroy: function () {
@@ -3346,10 +4384,15 @@
         : s.installed ? '<span class="ui-badge warn">Installed, not connected</span><span class="small muted">Click the VideoBlog Buddy icon in your toolbar (on this page) and press <b>Connect this site</b>.</span>'
           : '<span class="ui-badge">Not found in this browser</span><span class="small muted">Install it below, then reload this page.</span>';
     }
+    var shownStore = null;
+    function draw(store) {
+    shownStore = store || '';
     view.innerHTML = '<div class="ui-wrap">' +
       '<div class="ex-hero"><span class="pz">' + UI.icon('puzzle') + '</span><div><h1>VideoBlog Buddy for Chrome</h1><p>Optional. The app records fine without it. With it, your demos look a lot more pro.</p>' +
         '<div class="ex-status" data-status></div></div>' +
-        '<a class="ui-btn primary lg" href="' + ZIP + '" download="videoblog-buddy-extension.zip">' + UI.icon('download') + 'Download the extension</a></div>' +
+        (store ? '<div class="ui-stack" style="gap:6px;justify-items:end"><a class="ui-btn primary lg" href="' + esc(store) + '" target="_blank" rel="noopener" data-store>' + UI.icon('puzzle') + 'Add to Chrome: it\'s free</a>' +
+            '<a class="small muted" href="' + ZIP + '" download="videoblog-buddy-extension.zip">or download the zip</a></div>'
+          : '<a class="ui-btn primary lg" href="' + ZIP + '" download="videoblog-buddy-extension.zip">' + UI.icon('download') + 'Download the extension</a>') + '</div>' +
       '<div class="ex-feats">' +
         feat('record', 'One-click tab recording', 'On the tab you want to show, click the extension and press Record this tab. No picker, no hunting for the right tab.') +
         feat('zoom', 'Your clicks become zooms', 'Every click in the recorded tab is saved with its position, and the editor zooms in on it smoothly, like the pros do.') +
@@ -3358,11 +4401,14 @@
         feat('keyboard', 'Shortcuts from any tab', 'Alt+Shift+R stops, Alt+Shift+P pauses, Alt+Shift+M drops a chapter marker, without switching tabs.') +
         feat('lock', 'Private by design', 'It only talks to this site after you connect it, only while you record, and never sends what you type.') + '</div>' +
       '<div class="ex-cols"><div class="ui-card"><h2 style="font-size:1.3rem">Install (Chrome, Edge, Brave, Arc, Opera)</h2><ol class="ex-steps">' +
-        '<li><b>Download</b> the extension (button above) and <b>unzip</b> it. You get a folder called <code>videoblog-buddy-extension</code>.</li>' +
+        (store ? '<li>Press <b>Add to Chrome</b> above, then <b>Add extension</b> in the Chrome Web Store.</li>' +
+          '<li>Pin it: click the puzzle piece in the toolbar, then the pin next to VideoBlog Buddy.</li>' +
+          '<li>Come back to this page, click the red VideoBlog Buddy icon and press <b>Connect this site</b>.</li>'
+        : '<li><b>Download</b> the extension (button above) and <b>unzip</b> it. You get a folder called <code>videoblog-buddy-extension</code>.</li>' +
         '<li>Open <code>chrome://extensions</code> (Edge: <code>edge://extensions</code>) and switch on <b>Developer mode</b> (top right).</li>' +
         '<li>Click <b>Load unpacked</b> and choose the unzipped folder.</li>' +
         '<li>Pin it: click the puzzle piece in the toolbar, then the pin next to VideoBlog Buddy.</li>' +
-        '<li>Come back to this page, click the red VideoBlog Buddy icon and press <b>Connect this site</b>.</li></ol>' +
+        '<li>Come back to this page, click the red VideoBlog Buddy icon and press <b>Connect this site</b>.</li>') + '</ol>' +
         '<p class="small muted" style="margin:14px 0 0">Firefox and Safari: the app records without the extension (choose a tab in the browser\'s share dialog). Click zooms and one-click recording need a Chromium browser.</p></div>' +
       '<div class="ui-stack"><div class="ui-card"><h3>Keyboard shortcuts</h3><div class="ex-keys">' +
         '<div><span>Stop recording</span><span><span class="vb-kbd">Alt</span>+<span class="vb-kbd">Shift</span>+<span class="vb-kbd">R</span></span></div>' +
@@ -3371,14 +4417,16 @@
         '<div><span>Draw on the page</span><span><span class="vb-kbd">Alt</span>+<span class="vb-kbd">Shift</span>+<span class="vb-kbd">D</span></span></div></div>' +
         '<p class="small muted" style="margin:10px 0 0">Change them at <code>chrome://extensions/shortcuts</code>.</p></div>' +
       '<div class="ui-card"><h3>What it can see</h3><p class="small">It runs on the pages you visit so it can draw click rings there. While you record, it sends this site the <b>position</b> of each click (not what you clicked on), and shows shortcut keys on the page. It never reads or sends the letters you type, page content, or your history. Nothing goes anywhere but this site, and only after you connect it.</p></div></div></div></div>';
-    function feat(icon, title, text) { return '<div class="ex-feat">' + UI.icon(icon) + '<h3>' + esc(title) + '</h3><p>' + esc(text) + '</p></div>'; }
     status();
+    }
+    function feat(icon, title, text) { return '<div class="ex-feat">' + UI.icon(icon) + '<h3>' + esc(title) + '</h3><p>' + esc(text) + '</p></div>'; }
+    draw(VB.config && VB.config.extension_store_url);
     unsub = VB.ext.on(function (m) {
       if (m.type === 'hello' || m.type === 'paired') status();
       if (m.type === 'test-ok') UI.toast('The extension answered: all good (v' + (m.version || '?') + ')', 'ok');
     });
     view.addEventListener('click', function (e) { if (e.target.closest('[data-test]')) VB.ext.send('test'); });
-    return { ready: VB.ext.ping(450).then(status), destroy: function () { if (unsub) unsub(); } };
+    return { ready: Promise.all([VB.ext.ping(450), VB.getConfig()]).then(function (r) { if ((r[1].extension_store_url || '') !== shownStore) draw(r[1].extension_store_url); else status(); }), destroy: function () { if (unsub) unsub(); } };
   });
 })();
 
@@ -3399,7 +4447,7 @@
       '<div class="ui-field"><span>Format</span><div class="ui-choices">' + VB.KINDS.map(function (k) {
         return '<label class="ui-choice"><input type="radio" name="kind" value="' + k.key + '"' + ((opts.kind || 'youtube') === k.key ? ' checked' : '') + '><span>' + k.emoji + ' ' + esc(k.short) + '</span></label>';
       }).join('') + '</div></div>' +
-      '<div class="ui-grid two"><label class="ui-field"><span>Publish by <em>(optional)</em></span><input type="date" name="due"></label>' +
+      '<div class="ui-grid two"><label class="ui-field"><span>Publish by <em>(optional)</em></span><input type="date" name="due" value="' + esc(opts.due || '') + '"></label>' +
       '<label class="ui-field"><span>Start the script from</span><select name="tpl"><option value="">A blank page</option>' +
         tpls.map(function (t) { return '<option value="' + t.key + '">' + esc(t.emoji + ' ' + t.name) + '</option>'; }).join('') + '</select></label></div>' +
       '<div class="ui-row end"><button type="button" class="ui-btn ghost" data-close>Cancel</button><button class="ui-btn primary" type="submit">' + UI.icon('plus') + 'Create</button></div></form>');
@@ -3428,12 +4476,14 @@
       '<a href="#record/' + esc(v.id) + '">' + UI.icon('record') + 'Record a take</a>' +
       '<a href="#edit/' + esc(v.id) + '">' + UI.icon('scissors') + 'Edit video</a>' +
       (VB.isVertical(v.kind) ? '<button data-remix="youtube">' + UI.icon('tv') + 'Make a 16:9 version</button>'
-        : '<button data-remix="short">' + UI.icon('phone') + 'Make a Short version</button><button data-remix="reel">' + UI.icon('film') + 'Make a Reel version</button>') +
+        : '<button data-remix="short">' + UI.icon('phone') + 'Make a Short version</button><button data-remix="reel">' + UI.icon('film') + 'Make a Reel version</button>' +
+          '<button data-clips>' + UI.icon('scissors') + 'Shorts from chapters</button>') +
       '<button class="danger" data-del>' + UI.icon('trash') + 'Delete</button>';
     btn.parentNode.appendChild(menu);
     function close(e) { if (!menu.contains(e.target) && e.target !== btn && !btn.contains(e.target)) { menu.remove(); document.removeEventListener('click', close, true); } }
     setTimeout(function () { document.addEventListener('click', close, true); });
     menu.addEventListener('click', function (e) {
+      if (e.target.closest('[data-clips]')) { menu.remove(); VB.clipsDialog(v, after); return; }
       var r = e.target.closest('[data-remix]');
       if (r) {
         menu.remove();
@@ -3444,6 +4494,32 @@
         menu.remove();
         VB.deleteVideo(v).then(function (yes) { if (yes && after) after(); });
       }
+    });
+  };
+  /* One vertical Short per chapter marker of a video's takes. */
+  VB.clipsDialog = function (v, after) {
+    return UI.api('video_get', v.id).then(function (r) {
+      var clips = [];
+      r.takes.forEach(function (t) {
+        var marks = (t.markers || []).filter(function (m) { return m[1] === 'chapter' || m[1] === 'highlight'; }).sort(function (a, b) { return a[0] - b[0]; });
+        marks.forEach(function (m, i) {
+          var a = m[0], b = i + 1 < marks.length ? marks[i + 1][0] : t.duration;
+          b = Math.min(b, a + 90);  // a Short that holds attention: 90 s at most
+          if (b - a >= 4) clips.push({ take: t.id, 'in': +a.toFixed(2), out: +b.toFixed(2), title: (m[2] || 'Clip ' + (clips.length + 1)) + ' · ' + (r.product ? r.product.name : v.title).slice(0, 60), label: m[2] || 'Clip', from: t.label });
+        });
+      });
+      if (!clips.length) { UI.toast('No chapter markers yet. Press M while recording (or add markers) to mark the best moments.'); return; }
+      var m = UI.modal('<h2>Shorts from chapters</h2><p class="muted">Each chapter marker becomes its own vertical Short (up to 90 seconds), sharing the same recording.</p>' +
+        '<div class="st-clips">' + clips.map(function (c, i) {
+          return '<label><input type="checkbox" data-ci="' + i + '" checked><span style="flex:1"><b>' + esc(c.label) + '</b><span class="small muted"> · ' + esc(c.from) + ' · ' + VB.fmtTime(c['in']) + '–' + VB.fmtTime(c.out) + ' (' + VB.fmtTime(c.out - c['in']) + ')</span></span></label>';
+        }).join('') + '</div><div class="ui-row end" style="margin-top:14px"><button class="ui-btn ghost" data-close>Cancel</button><button class="ui-btn primary" data-mk>' + UI.icon('phone') + 'Make the Shorts</button></div>', { wide: true });
+      m.el.querySelector('[data-mk]').addEventListener('click', function () {
+        var pick = clips.filter(function (c, i) { return m.el.querySelector('[data-ci="' + i + '"]').checked; }), btn = this, made = 0;
+        if (!pick.length) return;
+        var chain = Promise.resolve();
+        pick.forEach(function (c) { chain = chain.then(function () { return UI.api('video_remix', v.id, 'short', { take: c.take, 'in': c['in'], out: c.out, title: c.title }).then(function () { made++; }); }); });
+        UI.busy(btn, chain).then(function () { m.close(); UI.toast('Made ' + UI.plural(made, 'Short') + '. They\'re on your planner.', 'ok'); if (after) after(); }, function () { if (after) after(); });
+      });
     });
   };
   VB.deleteVideo = function (v) {
@@ -3492,7 +4568,14 @@
     }
     function side() {
       var st = data.stats;
+      var goal = st.goal || 0, week = st.week || 0, k = goal ? Math.min(1, week / goal) : 0, R = 26, C2 = 2 * Math.PI * R;
       return '<aside class="st-side">' +
+        '<div class="ui-card" data-goal><h3>🎯 Weekly goal</h3>' + (goal ? '<div class="st-goal"><svg width="68" height="68" viewBox="0 0 68 68" aria-hidden="true"><circle cx="34" cy="34" r="' + R + '" fill="none" stroke="var(--c-line)" stroke-width="7"/>' +
+          '<circle cx="34" cy="34" r="' + R + '" fill="none" stroke="' + (k >= 1 ? '#2e9d5b' : 'var(--c-brand)') + '" stroke-width="7" stroke-linecap="round" stroke-dasharray="' + (C2 * k).toFixed(1) + ' ' + C2.toFixed(1) + '" transform="rotate(-90 34 34)"/>' +
+          '<text x="34" y="39" text-anchor="middle" font-size="15" font-weight="700" fill="currentColor">' + week + '/' + goal + '</text></svg>' +
+          '<div><b>' + (k >= 1 ? 'Goal reached! 🎉' : UI.plural(goal - week, 'more video') + ' this week') + '</b><div class="small muted">' + UI.plural(week, 'video') + ' published since Monday</div></div></div>'
+          : '<p class="small muted" style="margin:0 0 8px">Publishing on a rhythm grows a channel. How many videos a week?</p>') +
+          '<div class="ui-seg" style="margin-top:10px">' + [[1, '1'], [2, '2'], [3, '3'], [5, '5'], [0, 'Off']].map(function (o) { return '<button data-setgoal="' + o[0] + '" class="' + (goal === o[0] ? 'on' : '') + '">' + o[1] + '</button>'; }).join('') + '</div></div>' +
         '<div class="ui-card"><h3>' + UI.icon('star') + 'Achievements</h3><div class="st-badges">' + data.badges.map(function (b) {
           return '<div class="st-badge ' + (b.got ? 'on' : 'off') + '" title="' + esc(b.name + ': ' + b.desc) + '"><span>' + esc(b.emoji) + '</span><small>' + esc(b.name) + '</small></div>';
         }).join('') + '</div><p class="small muted" style="margin:10px 0 0">' + data.badges.filter(function (b) { return b.got; }).length + ' of ' + data.badges.length + ' earned' +
@@ -3535,13 +4618,15 @@
       });
     }
     function extCard() {
-      VB.ext.ping(500).then(function (s) {
+      Promise.all([VB.ext.ping(500), VB.getConfig()]).then(function (r) {
+        var s = r[0];
         var box = view.querySelector('[data-extcard]'); if (!box) return;
         box.innerHTML = '<h3>' + UI.icon('puzzle') + 'Browser extension</h3>' +
           (s.paired ? '<p class="small" style="margin:0 0 10px"><span class="ui-badge good">' + UI.icon('check') + 'Connected</span> Clicks are recorded for auto-zoom, and you can record any tab from the toolbar.</p>'
             : s.installed ? '<p class="small" style="margin:0 0 10px"><span class="ui-badge warn">Installed, not connected</span> Open its popup on this page and press <b>Connect</b>.</p>'
               : '<p class="small muted" style="margin:0 0 10px">One-click tab recording, click rings and auto-zoom on your clicks.</p>') +
-          '<a class="ui-btn sm" href="#extension" data-go="extension">' + (s.installed ? 'Extension settings' : UI.icon('download') + 'Get the extension') + '</a>';
+          (!s.installed && VB.config.extension_store_url ? '<a class="ui-btn sm primary" href="' + esc(VB.config.extension_store_url) + '" target="_blank" rel="noopener">' + UI.icon('puzzle') + 'Add to Chrome</a> ' : '') +
+          '<a class="ui-btn sm" href="#extension" data-go="extension">' + (s.installed ? 'Extension settings' : VB.config.extension_store_url ? 'What it does' : UI.icon('download') + 'Get the extension') + '</a>';
       });
     }
     function rescue() {
@@ -3605,6 +4690,14 @@
       }
       if (t.closest('[data-persist]')) { VB.vault.persist().then(function (ok) { UI.toast(ok ? 'Recordings are protected from automatic clean-up' : 'The browser said no. It may ask again after you use the app more.', ok ? 'ok' : null); storage(); }); return; }
       if (t.closest('[data-files]')) { manageFiles(); return; }
+      var sg = t.closest('[data-setgoal]');
+      if (sg) {
+        UI.api('set_goal', +sg.getAttribute('data-setgoal')).then(function (r) {
+          data.stats = r.stats; data.badges = r.badges; draw();
+          if (r.new_badges && r.new_badges.length) VB.badgePop(r.new_badges); else UI.toast(r.stats.goal ? 'Goal: ' + UI.plural(r.stats.goal, 'video') + ' a week' : 'Weekly goal off', 'ok');
+        });
+        return;
+      }
       var ri = t.closest('[data-rescue-it]'); if (ri) { UI.busy(ri, rescueIt(ri.closest('[data-rid]').getAttribute('data-rid'))); return; }
       var rd = t.closest('[data-rescue-drop]');
       if (rd) {
@@ -3629,14 +4722,17 @@
     proof: ['Free', 'Nothing to install', 'Recordings never leave your computer'],
     steps: [
       ['Record', 'Your screen with your face in a bubble, or just the camera.', ['Teleprompter that scrolls as you talk', 'Chapter markers with one key', 'Pause, retake, keep the best']],
-      ['Edit', 'Trim, cut the pauses, zoom where you clicked.', ['Title cards and name tags', 'One click from 16:9 to 9:16', 'Music that ducks under your voice']],
-      ['Publish', 'Export an MP4 and the words to go with it.', ['Thumbnail maker, 1280×720', 'Description with chapters, tags, hashtags', 'A planner that keeps your streak alive']]
+      ['Edit', 'Trim, cut the pauses, zoom where you clicked, edit by deleting words.', ['Captions written on your computer', 'One click from 16:9 to 9:16', 'Free music made by the app']],
+      ['Publish', 'Export an MP4, then upload it to YouTube from here.', ['Thumbnail maker, 1280×720', 'Description with chapters, tags, hashtags', 'A planner with a weekly goal']]
     ],
     features: [
       ['record', 'Screen + camera bubble', 'Record a tab, a window or the whole screen with your face in the corner. The camera is saved separately, so you can move or hide the bubble later.'],
       ['scroll', 'Teleprompter', 'Write the script once. It scrolls in the recorder and in a floating window that stays on top of the tab you\'re showing.'],
       ['zoom', 'Zooms on your clicks', 'With the browser extension, every click is remembered and the editor zooms in on it smoothly. Demos people can actually read.'],
       ['scissors', 'Remove pauses', 'One button finds the silences and cuts them, with a little air left around your words. Undo is always there.'],
+      ['text', 'Captions + edit by words', 'Speech-to-text runs on your computer. Cut a sentence by selecting its words, remove every “um” in one click, download the .srt.'],
+      ['upload', 'Straight to YouTube', 'Upload the video, thumbnail and captions to your channel from the publish kit: private, unlisted, public or scheduled.'],
+      ['wand', 'A writing partner', 'Hook lab, a script check-up, release notes turned into a script, and ready prompts for your favourite AI chat.'],
       ['phone', 'Shorts and Reels too', 'Make a vertical version of any video: screen on top, you below, red progress bar. Same takes, no re-recording.'],
       ['image', 'Thumbnail maker', 'Big words, your face, a frame from the video. Five layouts, sized and compressed for YouTube.'],
       ['rocket', 'Publish kit', 'Title ideas, a description with chapters from your markers, tags, hashtags, a pinned comment and an upload checklist.'],
@@ -3649,10 +4745,11 @@
       ['Is it free?', 'Yes. Recording, editing, exporting and the publish kit are free.'],
       ['Do I need to install anything?', 'No. It works in Chrome, Edge, Firefox and Safari on a computer. The optional Chrome extension adds one-click tab recording and zooms on your clicks.'],
       ['Where are my videos stored?', 'In your browser, on your computer. They are never uploaded to us. Your account keeps the plan: titles, scripts, edit decisions and descriptions. Download finished videos to keep them safe.'],
-      ['Does it upload to YouTube for me?', 'Not yet. You export an MP4, upload it in YouTube Studio (or Instagram), and paste the title, description and tags the app wrote for you. Then mark it published here.'],
+      ['Does it upload to YouTube for me?', 'Yes. Sign in with Google once and upload the video, its thumbnail and captions straight from the publish kit. For Instagram or TikTok, export the MP4 and paste the caption the app wrote.'],
+      ['Are the captions sent to a server to be written?', 'No. Speech recognition runs in your browser (the model downloads once). Only the words are saved with your take, like your script.'],
       ['Can I make Shorts and Reels?', 'Yes. Pick 9:16 in the editor or press "Make a Short version" on any video. The screen goes on top and your camera below.'],
       ['Can I use it on my phone?', 'You can plan, write scripts, use the full-screen teleprompter and record camera takes. Screen recording needs a computer.'],
-      ['Where does the music come from?', 'Bring your own audio file (YouTube\'s Audio Library is a good free source). Make sure you have the rights to use it.']
+      ['Where does the music come from?', 'Pick one of the Buddy beats the app makes for you (free to use, even on monetized videos), or bring your own audio file you have the rights to use.']
     ]
   };
 
@@ -3732,36 +4829,59 @@
   function late(v) { if (!v.due || v.status === 'published') return false; var t = new Date(); t.setHours(0, 0, 0, 0); return new Date(v.due + 'T12:00:00') < t; }
 
   UI.page('planner', { title: 'Planner', nav: 'Planner', icon: 'kanban', auth: 'user', order: 30 }, function (view, ctx) {
-    var D = null, app = UI.store.get('pl.app', ''), col = 'idea', ideaApp = '';
+    var D = null, app = UI.store.get('pl.app', ''), col = 'idea', ideaApp = '', mode = UI.store.get('pl.view', 'board') === 'calendar' ? 'calendar' : 'board';
+    var month = new Date(); month.setDate(1); month.setHours(12, 0, 0, 0);
+    function pri(v) { var n = v.priority || 0; return '<button class="pl-pri" data-pri title="How excited are you about it? (click)" aria-label="Excitement ' + n + ' of 3">' + [1, 2, 3].map(function (k) { return '<span class="' + (k <= n ? '' : 'off') + '">🔥</span>'; }).join('') + '</button>'; }
+    function iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
     view.innerHTML = '<div class="ui-wrap"><div class="ui-skel" style="height:420px"></div></div>';
     function q(s) { return view.querySelector(s); }
     function shown() { return D.videos.filter(function (v) { return !app || (v.product && v.product.id === app); }); }
     function cardHtml(v) {
       var i = VB.STATUSES.map(function (s) { return s.key; }).indexOf(v.status);
       return '<div class="pl-card" draggable="true" data-id="' + esc(v.id) + '"><a class="t" href="#video/' + esc(v.id) + '">' + esc(VB.kind(v.kind).emoji) + ' ' + esc(v.title) + '</a>' +
-        '<div class="row">' + (v.product ? VB.appChip(v.product) : '') + (v.due ? '<span class="due' + (late(v) ? ' late' : '') + '">' + UI.icon('calendar') + ' ' + esc(dueLabel(v.due)) + '</span>' : '') +
+        '<div class="row">' + (v.status !== 'published' ? pri(v) : '') + (v.product ? VB.appChip(v.product) : '') + (v.due ? '<span class="due' + (late(v) ? ' late' : '') + '">' + UI.icon('calendar') + ' ' + esc(dueLabel(v.due)) + '</span>' : '') +
         '<span class="mv">' + (i > 0 ? '<button data-mv="-1" aria-label="Move back">◀</button>' : '') + (i < 4 ? '<button data-mv="1" aria-label="Move forward">▶</button>' : '') + '</span></div></div>';
     }
     function draw() {
       var vids = shown();
       var next = vids.filter(function (v) { return v.due && v.status !== 'published'; }).sort(function (a, b) { return a.due < b.due ? -1 : 1; }).slice(0, 8);
       view.innerHTML = '<div class="ui-wrap"><div class="pl-head"><div><h1>Planner</h1><p class="muted" style="margin:4px 0 0">Every video from idea to published. Drag cards along as they move.</p></div>' +
-        '<button class="ui-btn primary" data-new>' + UI.icon('plus') + 'New idea</button></div>' +
+        '<div class="ui-row"><div class="ui-seg"><button data-mode="board" class="' + (mode === 'board' ? 'on' : '') + '">' + UI.icon('kanban') + 'Board</button><button data-mode="calendar" class="' + (mode === 'calendar' ? 'on' : '') + '">' + UI.icon('calendar') + 'Calendar</button></div>' +
+        '<button class="ui-btn primary" data-new>' + UI.icon('plus') + 'New idea</button></div></div>' +
         (D.products.length ? '<div class="pl-filters"><button data-app="" class="' + (app ? '' : 'on') + '">All apps</button>' + D.products.map(function (p) {
           return '<button data-app="' + esc(p.id) + '" class="' + (app === p.id ? 'on' : '') + '"><i style="background:' + esc(p.color) + '"></i>' + esc(p.name) + '</button>'; }).join('') + '</div>' : '') +
         (next.length ? '<p class="vb-section-title">Coming up</p><div class="pl-next">' + next.map(function (v) {
           return '<a class="pl-due' + (late(v) ? ' late' : '') + '" href="#video/' + esc(v.id) + '"><span class="when">' + esc(dueLabel(v.due)) + '</span><b>' + esc(v.title) + '</b>' + VB.statusChip(v.status) + '</a>'; }).join('') + '</div>' : '') +
+        (mode === 'calendar' ? calendar(vids) :
         '<div class="pl-phonetabs ui-seg">' + VB.STATUSES.map(function (s) { return '<button data-coltab="' + s.key + '" class="' + (col === s.key ? 'on' : '') + '">' + s.label + '</button>'; }).join('') + '</div>' +
         '<div class="pl-board">' + VB.STATUSES.map(function (s) {
           var list = vids.filter(function (v) { return v.status === s.key; });
+          if (s.key === 'idea' || s.key === 'script') list.sort(function (a, b) { return (b.priority || 0) - (a.priority || 0); });
           return '<section class="pl-col' + (col === s.key ? ' show' : '') + '" data-col="' + s.key + '"><div class="pl-colh">' + UI.icon(s.icon) + s.label + ' <span class="n">' + list.length + '</span>' +
             (s.key === 'idea' || s.key === 'script' ? '<button class="ui-btn ghost icon sm" data-add="' + s.key + '" aria-label="Add">' + UI.icon('plus') + '</button>' : '') + '</div>' +
+            (s.key === 'idea' ? '<form class="pl-quick" data-quick><input type="text" name="title" maxlength="100" placeholder="Quick idea… (press Enter)" aria-label="Quick idea"></form>' : '') +
             '<div class="pl-cards">' + (list.length ? list.map(cardHtml).join('') : '<p class="small faint" style="margin:6px 4px">Nothing here.</p>') + '</div></section>';
-        }).join('') + '</div>' +
+        }).join('') + '</div>') +
         '<section class="pl-ideas"><div class="pl-ideas-head"><h2>💡 Idea machine</h2><span class="muted small">Video ideas from your app\'s details, with a script ready.</span><span class="ui-spacer"></span>' +
           (D.products.length ? '<select data-ideaapp>' + D.products.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === ideaApp ? ' selected' : '') + '>' + esc((p.emoji ? p.emoji + ' ' : '') + p.name) + '</option>'; }).join('') + '</select>' : '') + '</div>' +
           '<div data-ideas></div></section></div>';
       drawIdeas();
+    }
+    function calendar(vids) {
+      var y = month.getFullYear(), mo = month.getMonth(), first = new Date(y, mo, 1, 12), start = new Date(first);
+      start.setDate(1 - ((first.getDay() + 6) % 7));
+      var today = iso(new Date()), days = [], d = new Date(start);
+      for (var i = 0; i < 42; i++) { days.push(new Date(d)); d.setDate(d.getDate() + 1); if (i === 34 && d.getMonth() !== mo) break; }
+      var unsched = vids.filter(function (v) { return !v.due && v.status !== 'published'; }).sort(function (a, b) { return (b.priority || 0) - (a.priority || 0); });
+      function ev(v, pubDay) { return '<a class="pl-ev st-' + esc(v.status) + (late(v) ? ' late' : '') + '" draggable="true" data-ev="' + esc(v.id) + '" href="#video/' + esc(v.id) + '" title="' + esc(v.title + ' · ' + VB.status(v.status).label) + '">' + (pubDay ? '✓ ' : esc(VB.kind(v.kind).emoji) + ' ') + esc(v.title) + '</a>'; }
+      return (unsched.length ? '<div class="pl-unsch"><span class="small muted">Not scheduled (drag onto a day):</span>' + unsched.slice(0, 12).map(function (v) { return ev(v); }).join('') + (unsched.length > 12 ? '<span class="small muted">+' + (unsched.length - 12) + ' more</span>' : '') + '</div>' : '') +
+        '<div class="pl-cal"><div class="pl-calh"><button class="ui-btn ghost icon sm" data-mon="-1" aria-label="Previous month">◀</button><h2>' + esc(first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })) + '</h2>' +
+        '<button class="ui-btn sm" data-mon="0">Today</button><button class="ui-btn ghost icon sm" data-mon="1" aria-label="Next month">▶</button></div>' +
+        '<div class="pl-grid">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (n) { return '<div class="pl-dow">' + n + '</div>'; }).join('') +
+        days.map(function (day) {
+          var k = iso(day), list = vids.filter(function (v) { return v.status !== 'published' && v.due === k; }), pub = vids.filter(function (v) { return v.status === 'published' && v.published_at && iso(new Date(v.published_at)) === k; });
+          return '<div class="pl-day' + (day.getMonth() !== mo ? ' other' : '') + (k === today ? ' today' : '') + '" data-day="' + k + '"><span class="n">' + day.getDate() + '</span>' + pub.map(function (v) { return ev(v, true); }).join('') + list.map(function (v) { return ev(v); }).join('') + '</div>';
+        }).join('') + '</div></div><p class="small muted" style="margin-top:8px">Click an empty day to plan a video for it. Drag a video to another day to move its publish date.</p>';
     }
     function drawIdeas() {
       var box = q('[data-ideas]'); if (!box) return;
@@ -3787,6 +4907,19 @@
       var t = e.target, b;
       if ((b = t.closest('[data-app]'))) { app = b.getAttribute('data-app'); UI.store.set('pl.app', app); draw(); return; }
       if ((b = t.closest('[data-coltab]'))) { col = b.getAttribute('data-coltab'); draw(); return; }
+      if ((b = t.closest('[data-mode]'))) { mode = b.getAttribute('data-mode'); UI.store.set('pl.view', mode); draw(); return; }
+      if ((b = t.closest('[data-mon]'))) { var dm = +b.getAttribute('data-mon'); if (dm) month.setMonth(month.getMonth() + dm); else { month = new Date(); month.setDate(1); month.setHours(12, 0, 0, 0); } draw(); return; }
+      if ((b = t.closest('[data-pri]'))) {
+        e.preventDefault();
+        var pv = D.videos.filter(function (x) { return x.id === b.closest('[data-id]').getAttribute('data-id'); })[0], np = ((pv.priority || 0) + 1) % 4;
+        pv.priority = np; draw();
+        UI.apiQuiet('video_update', pv.id, { priority: np })['catch'](function (er) { UI.toast(er.message, 'error'); });
+        return;
+      }
+      if ((b = t.closest('.pl-day')) && !t.closest('.pl-ev')) {
+        VB.newVideo({ products: D.products, product_id: app, status: 'idea', due: b.getAttribute('data-day'), handle: D.handle, onCreated: function () { load(); } });
+        return;
+      }
       if (t.closest('[data-new]') || (b = t.closest('[data-add]'))) {
         VB.newVideo({ products: D.products, product_id: app, status: b ? b.getAttribute('data-add') : 'idea', handle: D.handle, onCreated: function () { load(); } });
         return;
@@ -3806,6 +4939,28 @@
       }
     });
     view.addEventListener('change', function (e) { if (e.target.matches('[data-ideaapp]')) { ideaApp = e.target.value; drawIdeas(); } });
+    view.addEventListener('submit', function (e) {
+      var f = e.target.closest('[data-quick]'); if (!f) return;
+      e.preventDefault();
+      var title = f.title.value.trim(); if (title.length < 2) return;
+      f.title.disabled = true;
+      UI.api('video_create', { title: title, status: 'idea', product_id: app || null }).then(function (r) {
+        D.videos.unshift(r.video); draw(); UI.toast('Idea saved', 'ok');
+        var nf = q('[data-quick] input'); if (nf) nf.focus();
+      }, function () { f.title.disabled = false; });
+    });
+    /* calendar: drag a video onto a day to set its publish date */
+    var evId = null;
+    view.addEventListener('dragstart', function (e) { var c = e.target.closest && e.target.closest('[data-ev]'); if (!c) return; evId = c.getAttribute('data-ev'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', evId); } catch (x) { /* old */ } });
+    view.addEventListener('dragover', function (e) { var c = e.target.closest && e.target.closest('.pl-day'); if (!c || !evId) return; e.preventDefault(); view.querySelectorAll('.pl-day.over').forEach(function (x) { x.classList.remove('over'); }); c.classList.add('over'); });
+    view.addEventListener('drop', function (e) {
+      var c = e.target.closest && e.target.closest('.pl-day'); if (!c || !evId) return; e.preventDefault();
+      var vid = evId, day = c.getAttribute('data-day'), v = D.videos.filter(function (x) { return x.id === vid; })[0]; evId = null;
+      if (!v || v.status === 'published') { draw(); return; }
+      var old = v.due; v.due = day; draw();
+      UI.apiQuiet('video_update', vid, { due: day }).then(function () { UI.toast('“' + v.title + '” is due ' + dueLabel(day).toLowerCase(), 'ok'); }, function (er) { v.due = old; draw(); UI.toast(er.message, 'error'); });
+    });
+    view.addEventListener('dragend', function () { evId = null; view.querySelectorAll('.pl-day.over').forEach(function (x) { x.classList.remove('over'); }); });
     var dragId = null;
     view.addEventListener('dragstart', function (e) { var c = e.target.closest && e.target.closest('.pl-card'); if (!c) return; dragId = c.getAttribute('data-id'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', dragId); } catch (x) { /* old */ } });
     view.addEventListener('dragover', function (e) { var c = e.target.closest && e.target.closest('.pl-col'); if (!c || !dragId) return; e.preventDefault(); view.querySelectorAll('.pl-col.over').forEach(function (x) { x.classList.remove('over'); }); c.classList.add('over'); });
@@ -4470,6 +5625,7 @@
           '<div><input class="lbl" data-lbl value="' + esc(t.label) + '" maxlength="60" aria-label="Take name">' +
           '<div class="facts"><span>' + VB.fmtTime(t.duration) + '</span><span>' + esc(MODE[t.mode] || t.mode) + '</span>' + (t.bytes ? '<span>' + VB.fmtBytes(t.bytes) + '</span>' : '') +
           (t.markers.length ? '<span>⚑ ' + t.markers.length + '</span>' : '') + (t.clicks.length ? '<span>' + UI.icon('cursor') + ' ' + t.clicks.length + ' clicks</span>' : '') +
+          (VB.wordsOf(t).length ? '<span>💬 ' + UI.plural(VB.wordsOf(t).length, 'word') + '</span>' : '') +
           '<span>' + esc(UI.ago(t.created)) + '</span>' + (t.sample ? '<span class="ui-badge">Sample</span>' : h ? '<span class="ui-badge good">On this computer</span>' : '<span class="ui-badge warn">On another computer</span>') + '</div></div>' +
           '<div class="acts"><button class="ui-btn ghost icon vd-star' + (t.starred ? ' on' : '') + '" data-star aria-label="Best take">' + UI.icon(t.starred ? 'star2' : 'star') + '</button>' +
           (!t.sample && h ? '<button class="ui-btn ghost icon" data-dl aria-label="Download">' + UI.icon('download') + '</button>' : '') +
@@ -4484,12 +5640,24 @@
     function drawScript() {
       var b = q('[data-body]'), v = D.video;
       b.innerHTML = '<div class="vd-sbar"><button class="ui-btn sm" data-tpls>' + UI.icon('sparkle') + 'Templates</button>' +
+        '<button class="ui-btn sm" data-hooks>🪝 Hook lab</button><button class="ui-btn sm" data-notes>' + UI.icon('list') + 'From release notes</button>' +
+        '<button class="ui-btn sm" data-ai>' + UI.icon('wand') + 'Ask an AI</button><button class="ui-btn sm" data-vers>' + UI.icon('undo') + 'Versions' + ((v.script_versions || []).length ? ' (' + v.script_versions.length + ')' : '') + '</button>' +
         '<a class="ui-btn sm" href="#prompter/' + esc(id) + '">' + UI.icon('scroll') + 'Teleprompter</a><a class="ui-btn sm primary" href="#record/' + esc(id) + '"><i class="rec-dot"></i>Record with it</a>' +
         '<span class="ui-spacer"></span><span class="stat" data-sstat></span></div>' +
         '<div class="vd-script"><textarea data-script placeholder="# Hook&#10;Say what the video is about in one line.&#10;&#10;# Demo&#10;[SHOW: the screen you\'ll record]&#10;What you\'ll say over it. (pause)&#10;&#10;# Call to action&#10;Try it free: link in the description.">' + esc(v.script) + '</textarea>' +
-        '<div><p class="vb-section-title">Preview</p><div class="vd-sprev" data-sprev></div><p class="small muted" style="margin-top:8px"><b>#</b> starts a section (it becomes a chapter idea), <b>[SHOW: …]</b> is a note to yourself (not read out), <b>(pause)</b> is a beat.</p></div></div>';
+        '<div><p class="vb-section-title">Preview</p><div class="vd-sprev" data-sprev></div><p class="small muted" style="margin-top:8px"><b>#</b> starts a section (it becomes a chapter idea), <b>[SHOW: …]</b> is a note to yourself (not read out), <b>(pause)</b> is a beat.</p>' +
+        '<div class="vd-doc" data-doctor></div></div></div>';
       preview();
     }
+    var doctor = VB.debounce(function () {
+      var box = q('[data-doctor]'), ta = q('[data-script]'); if (!box || !ta) return;
+      var r = VB.doctor(ta.value, D.video.kind), col = r.score >= 80 ? '#2e9d5b' : r.score >= 55 ? '#e6a700' : '#cc181e';
+      var ICON = { ok: '✅', warn: '⚠️', bad: '❌' };
+      box.innerHTML = '<div class="hd"><span class="sc" style="background:' + col + '">' + r.score + '</span><div><b>Script check-up</b><div class="small muted">' +
+        (r.score >= 80 ? 'Ready to record.' : r.score >= 55 ? 'Close. A few quick fixes below.' : 'Worth another pass before recording.') + '</div></div></div>' +
+        '<ul>' + r.items.map(function (it) { return '<li><span>' + ICON[it.state] + '</span><span>' + esc(it.title) + (it.tip ? '<small>' + esc(it.tip) + '</small>' : '') + '</span></li>'; }).join('') + '</ul>' +
+        (r.stats.words > 60 && !VB.isVertical(D.video.kind) ? '<div class="ui-row" style="margin-top:10px"><button class="ui-btn sm" data-mkshort>' + UI.icon('phone') + 'Make a 60-second Short from this script</button></div>' : '');
+    }, 350);
     function preview() {
       var txt = q('[data-script]').value, s = VB.scriptStats(txt);
       q('[data-sstat]').textContent = UI.plural(s.words, 'word') + ' · about ' + VB.fmtTime(s.seconds) + ' spoken · ' + UI.plural(s.sections, 'section');
@@ -4497,6 +5665,83 @@
       q('[data-sprev]').innerHTML = lines.length ? lines.map(function (l) {
         return l.k === 'h' ? '<div class="h">' + esc(l.text) + '</div>' : l.k === 'show' ? '<p class="show">▸ ' + esc(l.text) + '</p>' : '<p class="line">' + esc(l.text).replace(/\(pause\)/gi, '<span style="color:#ffd34d">⏸</span>') + '</p>';
       }).join('') : '<p class="show">Your script appears here as you type.</p>';
+      doctor();
+    }
+    function setScript(txt, msg) {
+      var ta = q('[data-script]'); if (!ta) return;
+      ta.value = txt; preview();
+      saveScript.cancel ? saveScript.cancel() : null;
+      return patch({ script: txt, snapshot: true, status: D.video.status === 'idea' && txt.trim() ? 'script' : D.video.status }, true).then(function () {
+        if (msg) UI.toast(msg, 'ok');
+        var vb = q('[data-vers]'); if (vb) vb.innerHTML = UI.icon('undo') + 'Versions' + ((D.video.script_versions || []).length ? ' (' + D.video.script_versions.length + ')' : '');
+      });
+    }
+    function hookLab() {
+      var list = VB.hooks(product(), D.handle);
+      var m = UI.modal('<h2>🪝 Hook lab</h2><p class="muted">The first 3 seconds decide if people stay. Pick one: it replaces your first spoken line' + (product() ? ', filled in from <b>' + esc(product().name) + '</b>' : '') + '.</p>' +
+        '<div class="vd-hooks">' + list.map(function (h, i) { return '<button data-hook="' + i + '"><small>' + esc(h.kind) + '</small>' + esc(h.text) + '</button>'; }).join('') + '</div>', { wide: true });
+      m.el.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-hook]'); if (!b) return;
+        var hook = list[+b.getAttribute('data-hook')].text, ta = q('[data-script]'), lines = ta.value.split('\n'), done = false;
+        for (var i = 0; i < lines.length; i++) {
+          var l = lines[i].trim();
+          if (!l || /^#/.test(l) || /^\[.*\]$/.test(l)) continue;
+          lines[i] = hook; done = true; break;
+        }
+        var txt = done ? lines.join('\n') : '# Hook\n' + hook + '\n\n' + ta.value;
+        m.close(); setScript(txt, 'Hook in. Read it out loud once.');
+      });
+    }
+    function notesDialog() {
+      var m = UI.modal('<h2>From release notes</h2><p class="muted">Paste your changelog, release notes or commit messages (one per line). You get a “What\'s new” script: new features first, then improvements and fixes.</p>' +
+        '<textarea data-ntxt rows="8" style="width:100%" placeholder="- feat: dark mode for the whole app&#10;- Add CSV export&#10;- fix: login button on iPhone&#10;- Faster search"></textarea>' +
+        '<p class="vb-section-title" style="margin-top:12px">Script</p><div class="vd-sprev" data-npre style="max-height:260px"><p class="show">The script appears here.</p></div>' +
+        '<div class="ui-row end" style="margin-top:12px"><button class="ui-btn ghost" data-close>Cancel</button><button class="ui-btn primary" data-nuse disabled>Use this script</button></div>', { wide: true });
+      var ta = m.el.querySelector('[data-ntxt]'), pre = m.el.querySelector('[data-npre]'), use = m.el.querySelector('[data-nuse]'), out = '';
+      ta.focus();
+      ta.addEventListener('input', function () {
+        out = VB.fromNotes(ta.value, product(), D.handle); use.disabled = !out;
+        pre.innerHTML = out ? VB.parseScript(out).map(function (l) { return l.k === 'h' ? '<div class="h">' + esc(l.text) + '</div>' : l.k === 'show' ? '<p class="show">▸ ' + esc(l.text) + '</p>' : '<p class="line">' + esc(l.text) + '</p>'; }).join('') : '<p class="show">The script appears here.</p>';
+      });
+      use.addEventListener('click', function () {
+        var cur = q('[data-script]').value.trim();
+        function go() { m.close(); setScript(out, 'Release notes turned into a script. Your old one is in Versions.'); }
+        if (cur) UI.confirm({ title: 'Replace the current script?', text: 'The current one is kept in Versions.', ok: 'Replace' }).then(function (y) { if (y) go(); }); else go();
+      });
+    }
+    function aiDialog() {
+      var task = UI.store.get('vd.ai', 'script');
+      var m = UI.modal('<h2>' + UI.icon('wand') + ' Ask an AI</h2><p class="muted">Copy this prompt into ChatGPT, Claude, Gemini or any AI chat. It already knows your app and this video. Nothing is sent from here.</p>' +
+        '<div class="ed-chips" data-aitasks style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px">' + VB.AI_TASKS.map(function (t) { return '<button class="ui-btn sm' + (t[0] === task ? ' primary' : '') + '" data-task="' + t[0] + '">' + t[2] + ' ' + esc(t[1]) + '</button>'; }).join('') + '</div>' +
+        '<div class="vd-ai"><textarea data-aiprompt rows="9" style="width:100%"></textarea></div>' +
+        '<div class="ui-row" style="margin:8px 0 14px"><button class="ui-btn primary" data-aicopy>' + UI.icon('copy') + 'Copy the prompt</button>' +
+          '<a class="ui-btn ghost sm" href="https://chatgpt.com/" target="_blank" rel="noopener">ChatGPT ↗</a><a class="ui-btn ghost sm" href="https://claude.ai/new" target="_blank" rel="noopener">Claude ↗</a><a class="ui-btn ghost sm" href="https://gemini.google.com/app" target="_blank" rel="noopener">Gemini ↗</a></div>' +
+        '<label class="ui-field"><span>Paste the answer here</span><textarea data-aians rows="6" style="width:100%" placeholder="# Hook&#10;…"></textarea></label>' +
+        '<div class="ui-row end" style="margin-top:12px"><button class="ui-btn ghost" data-close>Close</button><button class="ui-btn" data-aiadd disabled>Add below my script</button><button class="ui-btn primary" data-aiuse disabled>Use as my script</button></div>', { wide: true });
+      var pr = m.el.querySelector('[data-aiprompt]'), ans = m.el.querySelector('[data-aians]');
+      function fill() { pr.value = VB.aiPrompt(task, { product: product(), video: D.video, script: q('[data-script]').value, handle: D.handle }); }
+      fill();
+      m.el.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-task]');
+        if (b) { task = b.getAttribute('data-task'); UI.store.set('vd.ai', task); m.el.querySelectorAll('[data-task]').forEach(function (x) { x.classList.toggle('primary', x === b); }); fill(); return; }
+        if (e.target.closest('[data-aicopy]')) { VB.copy(pr.value, 'Prompt'); return; }
+        if (e.target.closest('[data-aiuse]')) { m.close(); setScript(ans.value.trim(), 'The AI\'s script is in. Your old one is in Versions.'); return; }
+        if (e.target.closest('[data-aiadd]')) { var cur = q('[data-script]').value.replace(/\s+$/, ''); m.close(); setScript((cur ? cur + '\n\n' : '') + ans.value.trim(), 'Added below your script.'); }
+      });
+      ans.addEventListener('input', function () { var on = !!ans.value.trim(); m.el.querySelector('[data-aiuse]').disabled = !on; m.el.querySelector('[data-aiadd]').disabled = !on; });
+    }
+    function versions() {
+      var list = D.video.script_versions || [];
+      var m = UI.modal('<h2>Script versions</h2><p class="muted">A copy is kept every 10 minutes of writing, and before a template, hook, AI answer or restore replaces it.</p>' +
+        (list.length ? '<div class="vd-vers">' + list.map(function (x, i) {
+          return '<div><div class="it"><div class="grow" style="flex:1"><b>' + esc(UI.fmtDateTime ? UI.fmtDateTime(x.at) : x.at) + '</b><div class="small muted">' + UI.plural(x.words || 0, 'word') + ' · ' + esc(String(x.text || '').split('\n').filter(function (l) { return l.trim() && !/^[#\[]/.test(l.trim()); })[0] || '').slice(0, 70) + '</div></div>' +
+            '<button class="ui-btn sm ghost" data-vsee="' + i + '">' + UI.icon('eye') + 'See</button><button class="ui-btn sm" data-vback="' + i + '">' + UI.icon('undo') + 'Restore</button></div><pre data-vpre="' + i + '" hidden>' + esc(x.text) + '</pre></div>';
+        }).join('') + '</div>' : '<div class="ui-empty">' + UI.icon('scroll') + '<h3>No versions yet</h3><p>Keep writing: copies appear here.</p></div>'), { wide: true });
+      m.el.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-vsee]'); if (b) { var pre = m.el.querySelector('[data-vpre="' + b.getAttribute('data-vsee') + '"]'); pre.hidden = !pre.hidden; return; }
+        b = e.target.closest('[data-vback]'); if (!b) return;
+        var x = list[+b.getAttribute('data-vback')]; m.close(); setScript(x.text, 'Restored. The script you had is now a version too.');
+      });
     }
     var saveScript = VB.debounce(function () {
       var txt = q('[data-script]') ? q('[data-script]').value : null;
@@ -4536,12 +5781,12 @@
         field('title', 'Title', 'input', 100) + '<div class="vd-titles" data-titles>' + (pub.titles || []).map(function (t) { return '<button data-pick="' + esc(t) + '">' + esc(t) + '</button>'; }).join('') + '</div>' +
         field('description', 'Description', 'desc', 5000) + field('tags', 'Tags (comma separated)', 'input', 500) + field('hashtags', 'Hashtags', 'input', 300) +
         field('pinned', 'Pinned comment', 'area', 1000) + field(vert ? 'caption' : 'caption', vert ? 'Caption for Shorts / Reels / TikTok' : 'Caption for a Short or social post', 'area', 2200) +
-        '</div><div class="ui-stack"><div class="ui-card" style="padding:16px"><h3 style="font-size:1rem">Upload checklist</h3><div class="vd-check" data-check></div></div>' +
+        '</div><div class="ui-stack"><div class="ui-card vd-yt" style="padding:16px" data-ytcard></div><div class="ui-card" style="padding:16px"><h3 style="font-size:1rem">Upload checklist</h3><div class="vd-check" data-check></div></div>' +
         '<div class="ui-card" style="padding:16px"><h3 style="font-size:1rem">Published?</h3><label class="ui-field"><span>Link to the video</span><input type="url" data-yt placeholder="https://youtu.be/…" value="' + esc(v.youtube_url) + '"></label>' +
         '<div class="ui-row" style="margin-top:10px">' + (v.status === 'published' ? '<span class="ui-badge good">' + UI.icon('check') + 'Published ' + esc(UI.ago(v.published_at)) + '</span><button class="ui-btn sm ghost" data-unpub>Undo</button>'
           : '<button class="ui-btn primary" data-pub>' + UI.icon('tv') + 'Mark as published</button>') + '</div>' +
-        '<p class="small muted" style="margin:10px 0 0">Upload your exported file in YouTube Studio (or Instagram), paste the kit, then come back and mark it published to keep your streak.</p></div></div></div>';
-      checklist();
+        '<p class="small muted" style="margin:10px 0 0">Uploaded somewhere else (YouTube Studio, Instagram, TikTok)? Paste the link and mark it published to keep your streak.</p></div></div></div>';
+      checklist(); ytCard();
       function field(k, label, type, max) {
         var val = pub[k] || '', inner = type === 'input' ? '<input type="text" data-pk="' + k + '" value="' + esc(val) + '" maxlength="' + max + '">'
           : '<textarea data-pk="' + k + '" class="' + (type === 'desc' ? 'desc' : '') + '" maxlength="' + max + '" rows="' + (type === 'desc' ? 14 : 3) + '">' + esc(val) + '</textarea>';
@@ -4554,6 +5799,93 @@
       return pub;
     }
     var savePub = VB.debounce(function () { if (q('[data-pk]')) patch({ publish: readPub() }, true).then(checklist); }, 900);
+
+    /* ---------------- direct YouTube upload */
+    var yt = { file: null, privacy: UI.store.get('yt.privacy', 'private'), when: '', cat: UI.store.get('yt.cat', '28'), kids: false, thumb: true, caps: true, busy: null };
+    function planNow() { return VB.plan(editNow(), D.takes, null); }
+    function ytCard() {
+      var box = q('[data-ytcard]'); if (!box) return;
+      var v = D.video, done = v.publish && v.publish.yt && v.publish.yt.id, cfg = VB.config || {};
+      var head = '<h3 style="font-size:1rem;display:flex;gap:8px;align-items:center">' + UI.icon('upload') + 'Upload to YouTube</h3>';
+      if (yt.busy) {
+        box.innerHTML = head + '<p class="small" style="margin:0 0 8px" data-ytmsg>' + esc(yt.busy.msg) + '</p><div class="ed-prog" style="height:10px;background:var(--c-surface-2);border:1px solid var(--c-line);border-radius:2px;overflow:hidden"><i data-ytbar style="display:block;height:100%;width:' + (yt.busy.f * 100).toFixed(1) + '%;background:linear-gradient(90deg,var(--c-brand-2),var(--c-brand))"></i></div>' +
+          '<div class="ui-row" style="margin-top:10px"><button class="ui-btn sm" data-ytstop>Cancel</button></div>';
+        return;
+      }
+      if (done) {
+        var y = v.publish.yt;
+        box.innerHTML = head + '<p style="margin:0 0 8px"><span class="ui-badge good">' + UI.icon('check') + 'On YouTube · ' + esc(y.privacy) + (y.publish_at ? ' · goes public ' + esc(UI.fmtDateTime ? UI.fmtDateTime(y.publish_at) : y.publish_at) : '') + '</span></p>' +
+          '<div class="ui-row"><a class="ui-btn sm" href="https://youtu.be/' + esc(y.id) + '" target="_blank" rel="noopener">' + UI.icon('external') + 'Watch</a><a class="ui-btn sm" href="https://studio.youtube.com/video/' + esc(y.id) + '/edit" target="_blank" rel="noopener">' + UI.icon('edit') + 'YouTube Studio</a>' +
+          '<button class="ui-btn sm ghost" data-ytagain>Upload a new version</button></div>' +
+          (y.privacy !== 'public' && v.status !== 'published' ? '<p class="small muted" style="margin:10px 0 0">When it\'s public, press <b>Mark as published</b> below to count it.</p>' : '');
+        return;
+      }
+      if (!cfg.google_client_id) {
+        box.innerHTML = head + '<p class="small muted" style="margin:0">' + (ctx.me && ctx.me.is_admin ? 'Connect a Google Cloud project once (about 5 minutes) and every member can upload straight from here. <a class="vb-link" href="#admin/settings">Set it up in Admin → Settings</a>.'
+          : 'Direct upload isn\'t switched on yet. Export the video, then upload it in <a class="vb-link" href="https://studio.youtube.com" target="_blank" rel="noopener">YouTube Studio</a> and paste the kit.') + '</p>';
+        return;
+      }
+      var last = VB.lastExport[id], file = yt.file || last, words = VB.planCues(planNow()).length > 0;
+      box.innerHTML = head +
+        (file ? '<div class="vd-ytfile">🎞️ <span style="flex:1"><b>' + esc(file.name) + '</b><br><span class="small muted">' + VB.fmtBytes(file.blob.size) + (file === last ? ' · exported a moment ago' : '') + '</span></span><label class="ui-btn ghost sm" style="cursor:pointer">Change<input type="file" accept="video/*" data-ytfile hidden></label></div>'
+          : '<p class="small muted" style="margin:0 0 8px">Export the video in the editor first, or choose the file:</p><label class="ui-btn sm" style="cursor:pointer">' + UI.icon('film') + 'Choose the video file<input type="file" accept="video/*" data-ytfile hidden></label>') +
+        '<div class="ui-field" style="margin-top:12px"><span>Who can watch</span><div class="ui-seg">' + [['private', 'Private'], ['unlisted', 'Unlisted'], ['public', 'Public'], ['schedule', 'Schedule']].map(function (o) {
+          return '<button data-ytp="' + o[0] + '" class="' + (yt.privacy === o[0] ? 'on' : '') + '">' + o[1] + '</button>'; }).join('') + '</div></div>' +
+        (yt.privacy === 'schedule' ? '<label class="ui-field"><span>Goes public at</span><input type="datetime-local" data-ytwhen value="' + esc(yt.when) + '"></label>' : '') +
+        '<label class="ui-field" style="margin-top:8px"><span>Category</span><select data-ytcat>' + VB.yt.CATEGORIES.map(function (c) { return '<option value="' + c[0] + '"' + (yt.cat === c[0] ? ' selected' : '') + '>' + esc(c[1]) + '</option>'; }).join('') + '</select></label>' +
+        '<label class="ui-check"><input type="checkbox" data-ytthumb' + (yt.thumb && v.thumb_design && v.thumb_design.text ? ' checked' : ' disabled') + '><span>Set my thumbnail' + (v.thumb_design && v.thumb_design.text ? '' : ' (make one in the Thumbnail tab first)') + '</span></label>' +
+        '<label class="ui-check"><input type="checkbox" data-ytcaps' + (yt.caps && words ? ' checked' : '') + (words ? '' : ' disabled') + '><span>Add my captions' + (words ? '' : ' (write them in the editor\'s Words tab)') + '</span></label>' +
+        '<label class="ui-check"><input type="checkbox" data-ytkids' + (yt.kids ? ' checked' : '') + '><span>Made for kids</span></label>' +
+        '<button class="ui-btn primary" data-ytgo style="margin-top:10px;width:100%"' + (file ? '' : ' disabled') + '>' + UI.icon('upload') + 'Upload to YouTube</button>' +
+        '<p class="small muted" style="margin:8px 0 0">Uses the title, description and tags on the left. It goes straight from this computer to your channel; Google asks you to sign in the first time.</p>';
+    }
+    function thumbJpeg() {
+      var d = D.video.thumb_design || {};
+      return VB.vault.get('thumb:' + id).then(function (r) {
+        if (r && r.blob) return r.blob;
+        if (!d.text) return null;
+        var c = document.createElement('canvas'); c.width = 1280; c.height = 720;
+        var tk = D.takes.filter(function (t) { return t.id === d.take; })[0];
+        return (tk ? VB.grabFrame(tk, d.t).catch(function () { return null; }) : Promise.resolve(null)).then(function (fr) {
+          VB.drawThumb(c.getContext('2d'), 1280, 720, d, fr, product());
+          return new Promise(function (res) { c.toBlob(res, 'image/jpeg', 0.9); });
+        });
+      });
+    }
+    function ytUpload() {
+      var file = yt.file || VB.lastExport[id]; if (!file) return;
+      var pub = readPub(), v = D.video, vert = VB.isVertical(v.kind) || (v.edit && v.edit.aspect === '9:16');
+      var when = yt.privacy === 'schedule' ? (yt.when ? new Date(yt.when) : null) : null;
+      if (yt.privacy === 'schedule' && (!when || isNaN(when) || when < new Date(Date.now() + 5 * 60000))) { UI.toast('Pick a time at least a few minutes from now.', 'error'); return; }
+      var caps = yt.caps && VB.planCues(planNow()).length > 0, wantThumb = yt.thumb && v.thumb_design && v.thumb_design.text;
+      var meta = { title: pub.title || v.title, description: pub.description || '', tags: pub.tags || '', category: yt.cat, kids: yt.kids, vertical: vert,
+        privacy: yt.privacy === 'schedule' ? 'private' : yt.privacy, publishAt: when ? when.toISOString() : '', captions: caps };
+      var signal = {}, extra = [];
+      yt.busy = { f: 0, msg: 'Asking Google…', signal: signal }; ytCard();
+      function prog(f, msg) { if (!yt.busy) return; yt.busy.f = f; if (msg) yt.busy.msg = msg; var b2 = q('[data-ytbar]'), m2 = q('[data-ytmsg]'); if (b2) b2.style.width = (f * 100).toFixed(1) + '%'; if (m2) m2.textContent = yt.busy.msg; }
+      VB.yt.connect(caps).then(function () {
+        prog(0.01, 'Uploading ' + VB.fmtBytes(file.blob.size) + '… keep this tab open.');
+        return VB.yt.upload(file.blob, meta, function (f) { prog(f * 0.92, 'Uploading… ' + Math.round(f * 100) + '%'); }, signal);
+      }).then(function (res) {
+        prog(0.94, 'Uploaded. Adding the finishing touches…');
+        var jobs = [];
+        if (wantThumb) jobs.push(thumbJpeg().then(function (j) { return j ? VB.yt.thumbnail(res.id, j).then(function () { return 'thumb'; }) : null; }).catch(function (e) { extra.push('thumbnail: ' + e.message); return null; }));
+        if (caps) jobs.push(VB.yt.captions(res.id, VB.toSRT(VB.planCues(planNow())), 'en').then(function () { return 'caps'; }).catch(function (e) { extra.push('captions: ' + e.message); return null; }));
+        return Promise.all(jobs).then(function (got) {
+          var info = { id: res.id, privacy: meta.privacy, at: new Date().toISOString(), publish_at: meta.publishAt, thumb: got.indexOf('thumb') >= 0, captions: got.indexOf('caps') >= 0 };
+          var p = { publish: Object.assign({}, pub, { yt: info }), youtube_url: 'https://youtu.be/' + res.id };
+          if (meta.privacy === 'public') p.status = 'published';
+          return patch(p);
+        });
+      }).then(function () {
+        yt.busy = null; yt.file = null; VB.confetti(80);
+        UI.toast('It\'s on YouTube' + (meta.privacy === 'public' ? ' and live! 🎉' : ' (' + (meta.publishAt ? 'scheduled' : meta.privacy) + ').') + (extra.length ? ' Not done: ' + extra.join('; ') : ''), extra.length ? 'error' : 'ok');
+        draw();
+      }, function (err) {
+        yt.busy = null; ytCard();
+        if (!(err && err.cancelled)) UI.toast(err && err.message || 'The upload didn\'t work.', 'error'); else UI.toast('Upload cancelled');
+      });
+    }
     function checklist() {
       var box = q('[data-check]'); if (!box) return;
       var pub = readPub(), checks = pub.checks || {};
@@ -4638,6 +5970,21 @@
         return;
       }
       if (t.closest('[data-tpls]')) { templates(); return; }
+      if (t.closest('[data-hooks]')) { hookLab(); return; }
+      if (t.closest('[data-notes]')) { notesDialog(); return; }
+      if (t.closest('[data-ai]')) { aiDialog(); return; }
+      if (t.closest('[data-vers]')) { versions(); return; }
+      if ((b = t.closest('[data-mkshort]'))) {
+        var sv = VB.shortVersion(q('[data-script]').value);
+        UI.busy(b, UI.api('video_create', { title: (D.video.title + ' (Short)').slice(0, 100), kind: 'short', status: 'script', product_id: D.video.product ? D.video.product.id : '', script: sv, due: D.video.due || '' })).then(function (r) {
+          UI.toast('Made a Short with a 60-second script', 'ok'); UI.go('video', r.video.id, 'script');
+        });
+        return;
+      }
+      if ((b = t.closest('[data-ytp]'))) { yt.privacy = b.getAttribute('data-ytp'); if (yt.privacy !== 'schedule') UI.store.set('yt.privacy', yt.privacy); ytCard(); return; }
+      if (t.closest('[data-ytgo]')) { ytUpload(); return; }
+      if (t.closest('[data-ytstop]')) { if (yt.busy && yt.busy.signal && yt.busy.signal.abort) yt.busy.signal.abort(); return; }
+      if (t.closest('[data-ytagain]')) { var pa = Object.assign({}, D.video.publish || {}, { yt: {} }); D.video.publish = pa; ytCard(); return; }
       if (t.closest('[data-gen]')) {
         var pub0 = readPub();
         var kit = VB.publishKit({ video: D.video, product: product(), chapters: chaptersNow(), handle: D.handle, outDur: D.video.duration });
@@ -4648,14 +5995,17 @@
       if ((b = t.closest('[data-pick]'))) { var ti = q('[data-pk=title]'); ti.value = b.getAttribute('data-pick'); ti.dispatchEvent(new Event('input', { bubbles: true })); return; }
       if ((b = t.closest('[data-copy]'))) { var el = q('[data-pk=' + b.getAttribute('data-copy') + ']'); VB.copy(el.value, b.closest('.ui-field').querySelector('span').firstChild.textContent); return; }
       if (t.closest('[data-pub]')) {
-        var yt = q('[data-yt]').value.trim();
-        patch({ status: 'published', youtube_url: yt }).then(function () { VB.confetti(); UI.toast('Published! 🎉', 'ok'); draw(); });
+        var ytu = q('[data-yt]').value.trim();
+        patch({ status: 'published', youtube_url: ytu }).then(function () { VB.confetti(); UI.toast('Published! 🎉', 'ok'); draw(); });
         return;
       }
       if (t.closest('[data-unpub]')) { patch({ status: 'edited' }).then(draw); return; }
       if ((b = t.closest('[data-tsave]'))) {
         var c = q('[data-tc]');
-        UI.busy(b, patch({ thumb: VB.smallJpeg(c, 320, 0.75), thumb_design: thumbDesign() })).then(function () { UI.toast('Thumbnail saved', 'ok'); });
+        UI.busy(b, patch({ thumb: VB.smallJpeg(c, 320, 0.75), thumb_design: thumbDesign() })).then(function () {
+          c.toBlob(function (bl) { if (bl) VB.vault.put('thumb:' + id, bl, { name: 'thumbnail.jpg' }); }, 'image/jpeg', 0.9);
+          UI.toast('Thumbnail saved', 'ok');
+        });
         return;
       }
       if (t.closest('[data-tdl]')) {
@@ -4690,6 +6040,12 @@
         }).then(function (r) { Object.assign(tk4, r.take); here[tk4.id] = true; VB.forgetSource(tk4.id); UI.toast('File linked: the take plays here now', 'ok'); draw(); });
         return;
       }
+      if (t.matches('[data-ytfile]')) { var yf = t.files[0]; if (yf) { yt.file = { blob: yf, name: yf.name }; ytCard(); } return; }
+      if (t.matches('[data-ytwhen]')) { yt.when = t.value; return; }
+      if (t.matches('[data-ytcat]')) { yt.cat = t.value; UI.store.set('yt.cat', yt.cat); return; }
+      if (t.matches('[data-ytthumb]')) { yt.thumb = t.checked; return; }
+      if (t.matches('[data-ytcaps]')) { yt.caps = t.checked; return; }
+      if (t.matches('[data-ytkids]')) { yt.kids = t.checked; return; }
       if (t.matches('[data-ck]')) { var pub = readPub(); pub.checks = Object.assign({}, pub.checks || {}); pub.checks[t.getAttribute('data-ck')] = t.checked; D.video.publish = pub; patch({ publish: pub }, true); return; }
       if (t.matches('[data-yt]')) { var u = t.value.trim(); if (u && !/^https?:\/\//.test(u)) { UI.toast('The link should start with https://', 'error'); return; } patch({ youtube_url: u }, true); return; }
       if (t.closest('[data-tform]')) {
@@ -4712,9 +6068,10 @@
       }
     });
     return {
-      ready: load(),
+      ready: VB.getConfig().then(load),
       destroy: function () {
         dead = true; if (saveScript.pending()) saveScript.flush(); if (savePub.pending()) savePub.flush();
+        if (yt.busy) UI.toast('The YouTube upload keeps going in the background only while this tab is open.');
         if (player) player.destroy(); VB.releaseSources();
       }
     };

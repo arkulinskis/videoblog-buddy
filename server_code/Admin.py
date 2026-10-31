@@ -39,6 +39,8 @@ def admin_overview():
             "products": len(app_tables.products.search()),
             "templates": len(app_tables.script_templates.search()),
             "extension_takes": len([t for t in takes if t["source"] == "extension"]),
+            "transcribed": len([t for t in takes if t["words"]]),
+            "uploads": len([v for v in videos if ((v["publish"] or {}).get("yt") or {}).get("id")]),
             "days": days,
             "demo": {"state": DemoData.state(), "counts": DemoData.counts()}}
 

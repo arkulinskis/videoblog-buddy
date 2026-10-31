@@ -22,7 +22,11 @@ BADGES = [
     ("marathon", "Marathon", "⏱️", "Record 60 minutes in total"),
     ("portfolio", "Portfolio", "\U0001F9E9", "Make videos about 3 different apps"),
     ("streak", "On a roll", "\U0001F525", "Publish 3 weeks in a row"),
+    ("wordsmith", "Wordsmith", "\U0001F4AC", "Write captions for a take"),
+    ("direct", "Straight to YouTube", "\U0001F680", "Upload a video to YouTube from the app"),
+    ("goal", "Goal getter", "\U0001F3AF", "Reach your weekly goal"),
 ]
+MAX_VERSIONS = 15
 VERTICAL = ("short", "reel")
 
 
@@ -51,14 +55,14 @@ def card(v, take_count=None):
         take_count = len(app_tables.takes.search(video=v))
     return {"id": v.get_id(), "title": v["title"] or "Untitled video", "kind": v["kind"] or "youtube", "status": v["status"] or "idea",
             "due": C.iso(v["due"]), "product": _product_mini(v["product"]), "duration": v["duration"] or 0, "thumb": v["thumb"] or "",
-            "takes": take_count, "youtube_url": v["youtube_url"] or "", "sample": bool(v["sample"]),
+            "takes": take_count, "youtube_url": v["youtube_url"] or "", "sample": bool(v["sample"]), "priority": int(v["priority"] or 0),
             "created": C.iso(v["created"]), "updated": C.iso(v["updated"]), "published_at": C.iso(v["published_at"])}
 
 
 def full(v):
     out = card(v)
     out.update({"script": v["script"] or "", "edit": v["edit"] or {}, "publish": v["publish"] or {},
-                "thumb_design": v["thumb_design"] or {}, "notes": v["notes"] or ""})
+                "thumb_design": v["thumb_design"] or {}, "notes": v["notes"] or "", "script_versions": v["script_versions"] or []})
     return out
 
 
@@ -66,7 +70,8 @@ def take_dict(t):
     return {"id": t.get_id(), "key": t["key"], "label": t["label"] or "", "mode": t["mode"] or "screen", "duration": t["duration"] or 0,
             "main": t["main"], "cam": t["cam"], "cam_offset": t["cam_offset"] or 0, "markers": t["markers"] or [],
             "clicks": t["clicks"] or [], "bytes": t["bytes"] or 0, "device": t["device"] or "", "sample": t["sample"] or "",
-            "thumb": t["thumb"] or "", "starred": bool(t["starred"]), "source": t["source"] or "", "created": C.iso(t["created"])}
+            "thumb": t["thumb"] or "", "starred": bool(t["starred"]), "source": t["source"] or "", "created": C.iso(t["created"]),
+            "words": t["words"] or None}
 
 
 def _takes(v):
@@ -96,15 +101,27 @@ def stats(me):
     vertical = len([e for e in exports if e["video"] is not None and e["video"]["kind"] in VERTICAL])
     apps = {v["product"].get_id() for v in videos if v["product"] is not None}
     minutes = round(sum((t["duration"] or 0) for t in takes) / 60.0, 1)
+    this_week = _iso_week(C.now().date())
+    goal = int(me["weekly_goal"] or 0)
+    per_week = {}
+    for v in published:
+        if v["published_at"]:
+            k = _iso_week(v["published_at"].date())
+            per_week[k] = per_week.get(k, 0) + 1
     return {"videos": len(videos), "published": len(published), "takes": len(takes), "minutes": minutes, "exports": len(exports),
             "vertical": vertical, "apps": len(apps), "streak": streak,
-            "products": len(app_tables.products.search(owner=me))}
+            "products": len(app_tables.products.search(owner=me)),
+            "transcribed": len([t for t in app_tables.takes.search(owner=me) if t["words"]]),
+            "uploads": len([v for v in videos if ((v["publish"] or {}).get("yt") or {}).get("id")]),
+            "week": per_week.get(this_week, 0), "goal": goal,
+            "goal_weeks": len([k for k, n in per_week.items() if goal and n >= goal])}
 
 
 def badges(st):
     got = {"first_take": st["takes"] >= 1, "first_cut": st["exports"] >= 1, "on_air": st["published"] >= 1,
            "five_live": st["published"] >= 5, "vertical": st["vertical"] >= 3, "marathon": st["minutes"] >= 60,
-           "portfolio": st["apps"] >= 3, "streak": st["streak"] >= 3}
+           "portfolio": st["apps"] >= 3, "streak": st["streak"] >= 3, "wordsmith": st.get("transcribed", 0) >= 1,
+           "direct": st.get("uploads", 0) >= 1, "goal": st.get("goal_weeks", 0) >= 1}
     return [{"key": k, "name": n, "emoji": e, "desc": d, "got": got[k]} for k, n, e, d in BADGES]
 
 
@@ -150,8 +167,24 @@ def _video_patch(v, patch, me):
             if p is None:
                 return "That app isn't in your list."
             ch["product"] = p
+    if "priority" in patch:
+        ch["priority"] = int(Clean.num(patch.get("priority"), 0, 3, 0, 0))
     if "script" in patch:
-        ch["script"] = C.text(patch.get("script"), 20000, multiline=True)
+        new = C.text(patch.get("script"), 20000, multiline=True)
+        old = v["script"] or ""
+        if new != old and old.strip():
+            # Keep the old script as a version: at most one per 10 minutes of writing (or when asked: snapshot).
+            vers = list(v["script_versions"] or [])
+            stamp = C.now()
+            last = vers[0].get("saved") if vers and isinstance(vers[0], dict) else None
+            try:
+                age = (stamp - dt.datetime.fromisoformat(last)).total_seconds() if last else 1e9
+            except (TypeError, ValueError):
+                age = 1e9
+            if patch.get("snapshot") or age > 600:
+                vers.insert(0, {"saved": C.iso(stamp), "at": C.iso(v["updated"] or stamp), "text": old, "words": len(old.split())})
+                ch["script_versions"] = vers[:MAX_VERSIONS]
+        ch["script"] = new
     if "notes" in patch:
         ch["notes"] = C.text(patch.get("notes"), 2000, multiline=True)
     if "youtube_url" in patch:
@@ -221,6 +254,17 @@ def set_handle(handle):
 
 
 @anvil.server.callable(require_user=True)
+def set_goal(n):
+    """Weekly goal: how many videos to publish each week (0 = no goal)."""
+    me = C.require_user()
+    before = {b["key"] for b in badges(stats(me)) if b["got"]}
+    me["weekly_goal"] = int(Clean.num(n, 0, 14, 0, 0))
+    st = stats(me)
+    bs = badges(st)
+    return C.ok(stats=st, badges=bs, new_badges=[b for b in bs if b["got"] and b["key"] not in before])
+
+
+@anvil.server.callable(require_user=True)
 def planner_get():
     me = C.require_user()
     videos = list(app_tables.videos.search(tables.order_by("updated", ascending=False), owner=me))
@@ -240,8 +284,8 @@ def video_create(fields=None):
     now = C.now()
     v = app_tables.videos.add_row(owner=me, title=title, kind="youtube", status="idea", script="", edit={}, publish={}, thumb="",
                                   thumb_design={}, duration=0, youtube_url="", notes="", sample=False, created=now, updated=now,
-                                  is_demo=False)
-    rest = {k: fields[k] for k in ("kind", "status", "due", "product_id", "script", "notes") if k in fields}
+                                  is_demo=False, priority=0, script_versions=[])
+    rest = {k: fields[k] for k in ("kind", "status", "due", "product_id", "script", "notes", "priority") if k in fields}
     err = _video_patch(v, rest, me)
     if err:
         v.delete()
@@ -297,31 +341,59 @@ def video_delete(video_id):
 
 
 @anvil.server.callable(require_user=True)
-def video_remix(video_id, kind):
+def video_remix(video_id, kind, clip=None):
     """A copy of the video in another format (e.g. a vertical Short from a YouTube video). The takes are
-    shared: the copy points at the same recordings."""
+    shared: the copy points at the same recordings. clip = {take, in, out, title}: the copy is only that part
+    of one take (a Short made from a chapter)."""
     me = C.require_user()
     v = _own(app_tables.videos, video_id, me)
     if v is None:
         return C.fail("That video isn't in your library.")
     kind = Clean.pick(kind, Clean.KINDS, "short")
+    src, a, b = None, 0, 0
+    if clip is not None:
+        clip = clip if isinstance(clip, dict) else {}
+        src = _own(app_tables.takes, clip.get("take"), me)
+        if src is None or src["video"] != v:
+            return C.fail("That take isn't part of this video.")
+        a = Clean.num(clip.get("in"), 0, src["duration"] or 0)
+        b = Clean.num(clip.get("out"), 0, src["duration"] or 0)
+        if b - a < 1:
+            return C.fail("That part is too short for a clip.")
+        if C.rate_limited("clips", 40, 3600):
+            return C.fail("That's a lot of clips in one hour. Try again a bit later.")
     now = C.now()
     label = {"short": "Short", "reel": "Reel", "square": "Square"}.get(kind, "Copy")
-    nv = app_tables.videos.add_row(owner=me, product=v["product"], title=C.text("%s (%s)" % (v["title"], label), 100), kind=kind,
+    title = C.text(clip.get("title"), 100) if src is not None else ""
+    title = title if len(title) >= 2 else C.text("%s (%s)" % (v["title"], label), 100)
+    nv = app_tables.videos.add_row(owner=me, product=v["product"], title=title, kind=kind,
                                    status="recorded" if v["status"] in ("edited", "published") else v["status"], due=v["due"],
                                    script=v["script"], edit={}, publish={}, thumb=v["thumb"], thumb_design=v["thumb_design"] or {},
                                    duration=v["duration"], youtube_url="", notes=v["notes"], sample=v["sample"], created=now,
-                                   updated=now, is_demo=False)
+                                   updated=now, is_demo=False, priority=v["priority"] or 0, script_versions=[])
     idmap = {}
     for t in _takes(v):
+        if src is not None and t != src:
+            continue
         row = app_tables.takes.add_row(video=nv, owner=me, **{k: t[k] for k in ("key", "label", "mode", "duration", "main", "cam",
                                                                                  "cam_offset", "markers", "clicks", "bytes", "device",
-                                                                                 "sample", "thumb", "starred", "source", "created")},
+                                                                                 "sample", "thumb", "starred", "source", "created",
+                                                                                 "words")},
                                        is_demo=False)
         idmap[t.get_id()] = row.get_id()
     ed = dict(v["edit"] or {})
     scenes = []
-    for sc in ed.get("scenes") or []:
+    if src is not None:
+        old = [sc for sc in ed.get("scenes") or [] if sc.get("type") == "take" and sc.get("take") == src.get_id()]
+        base = dict(old[0]) if old else {"zooms": [], "texts": [], "boxes": [], "speed": 1, "mute": False}
+        base.update({"id": "c1", "type": "take", "take": idmap[src.get_id()], "in": a, "out": b, "layout": "",
+                     "cuts": [c for c in base.get("cuts") or [] if c[0] >= a and c[1] <= b]})
+        base["texts"] = [x for x in base.get("texts") or [] if a <= x.get("s", 0) < b]
+        base["boxes"] = [x for x in base.get("boxes") or [] if x.get("e", 0) > a and x.get("s", 0) < b]
+        base["zooms"] = [x for x in base.get("zooms") or [] if a <= x.get("s", 0) < b]
+        scenes.append(base)
+        nv.update(duration=round(b - a, 1), status="recorded")
+    for sc in ([] if src is not None else ed.get("scenes") or []):
         sc = dict(sc)
         if sc.get("type") == "take":
             if sc.get("take") not in idmap:
@@ -397,6 +469,8 @@ def take_update(take_id, patch):
         th = Clean.thumb(patch.get("thumb"))
         if th is not None:
             ch["thumb"] = th
+    if "words" in patch:
+        ch["words"] = Clean.words(patch.get("words"))
     if ch:
         t.update(**ch)
     return C.ok(take=take_dict(t))

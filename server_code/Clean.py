@@ -12,12 +12,19 @@ BGS = ("red", "sunset", "ocean", "mint", "grape", "night", "paper", "blur")
 CAM_POS = ("br", "bl", "tr", "tl")
 CAM_SHAPES = ("circle", "rounded", "square")
 TRANSITIONS = ("cut", "fade", "dip")
-CARD_STYLES = ("classic", "bold", "minimal", "app", "subscribe")
+CARD_STYLES = ("classic", "bold", "minimal", "app", "subscribe", "endscreen")
 TEXT_STYLES = ("lower", "callout", "caption", "title", "arrow")
 TEXT_POS = ("bl", "bc", "br", "tl", "tc", "tr", "c")
 MARKER_KINDS = ("chapter", "highlight", "note")
 THUMB_TPLS = ("bold", "split", "emoji", "minimal", "news")
 MODES = ("screen_cam", "screen", "cam", "file")
+BOX_KINDS = ("blur", "spot", "box")
+CAPTION_STYLES = ("clean", "karaoke", "bold", "box")
+CAPTION_POS = ("bottom", "middle", "top")
+BEATS = ("", "lofi", "upbeat", "chill", "techno")
+VOICE_FX = ("off", "clean")
+WORD_SOURCES = ("whisper", "script", "sample", "typed")
+PRIVACY = ("private", "unlisted", "public")
 
 MAX_SCENES = 60
 MAX_CUTS = 300
@@ -25,6 +32,8 @@ MAX_ZOOMS = 120
 MAX_TEXTS = 40
 MAX_MARKERS = 400
 MAX_CLICKS = 4000
+MAX_BOXES = 30
+MAX_WORDS = 12000
 MAX_SECONDS = 4 * 3600
 
 
@@ -123,6 +132,45 @@ def texts(v):
     return out
 
 
+def boxes(v):
+    """Hide (blur) / spotlight / red box regions on the screen, in screen coordinates (0..1)."""
+    out = []
+    for b in (v if isinstance(v, list) else [])[:MAX_BOXES]:
+        if not isinstance(b, dict):
+            continue
+        a, e = num(b.get("s"), 0, MAX_SECONDS), num(b.get("e"), 0, MAX_SECONDS)
+        if e - a < 0.2:
+            continue
+        x, y = num(b.get("x"), 0, 0.98, 0.4, 4), num(b.get("y"), 0, 0.98, 0.4, 4)
+        w, h = num(b.get("w"), 0.02, 1 - x, 0.2, 4), num(b.get("h"), 0.02, 1 - y, 0.15, 4)
+        out.append({"id": ident(b.get("id")) or "b%d" % len(out), "s": a, "e": e, "x": x, "y": y, "w": w, "h": h,
+                    "kind": pick(b.get("kind"), BOX_KINDS, "blur")})
+    return out
+
+
+def captions(v):
+    v = v if isinstance(v, dict) else {}
+    return {"on": bool(v.get("on")), "style": pick(v.get("style"), CAPTION_STYLES, "karaoke"), "pos": pick(v.get("pos"), CAPTION_POS, "bottom"),
+            "size": num(v.get("size"), 0.6, 1.8, 1, 2), "upper": bool(v.get("upper")), "color": color(v.get("color"), "#ffde00")}
+
+
+def words(v):
+    """A take's transcript: {src, lang, words: [[start, end, word], ...]} (seconds of the take)."""
+    v = v if isinstance(v, dict) else {}
+    out = []
+    for w in (v.get("words") if isinstance(v.get("words"), list) else [])[:MAX_WORDS]:
+        if isinstance(w, (list, tuple)) and len(w) >= 3:
+            word = s(w[2], 40)
+            if not word:
+                continue
+            a = num(w[0], 0, MAX_SECONDS, 0, 2)
+            out.append([a, max(a + 0.02, num(w[1], 0, MAX_SECONDS, a, 2)), word])
+    out.sort(key=lambda w: w[0])
+    if not out:
+        return None
+    return {"src": pick(v.get("src"), WORD_SOURCES, "typed"), "lang": s(v.get("lang"), 12) or "en", "words": out}
+
+
 def scene(v, take_ids):
     if not isinstance(v, dict):
         return None
@@ -131,7 +179,7 @@ def scene(v, take_ids):
         return None
     if v.get("type") == "card":
         return {"id": sid, "type": "card", "style": pick(v.get("style"), CARD_STYLES, "classic"), "title": s(v.get("title"), 90),
-                "sub": s(v.get("sub"), 140), "dur": num(v.get("dur"), 1, 15, 3, 2), "color": color(v.get("color")),
+                "sub": s(v.get("sub"), 140), "dur": num(v.get("dur"), 1, 20, 3, 2), "color": color(v.get("color")),
                 "emoji": s(v.get("emoji"), 8)}
     take = v.get("take")
     if take not in take_ids:
@@ -141,7 +189,7 @@ def scene(v, take_ids):
         return None
     out = {"id": sid, "type": "take", "take": take, "in": a, "out": b, "cuts": pairs(v.get("cuts"), MAX_CUTS),
            "speed": num(v.get("speed"), 0.5, 2, 1, 2), "layout": pick(v.get("layout"), LAYOUTS + ("",), ""),
-           "zooms": zooms(v.get("zooms")), "texts": texts(v.get("texts")), "mute": bool(v.get("mute"))}
+           "zooms": zooms(v.get("zooms")), "texts": texts(v.get("texts")), "boxes": boxes(v.get("boxes")), "mute": bool(v.get("mute"))}
     if isinstance(v.get("cam"), dict) and v.get("cam"):
         out["cam"] = cam(v.get("cam"), partial=True)
     return out
@@ -157,11 +205,15 @@ def edit(v, take_ids):
             scenes.append(c)
     music = v.get("music") if isinstance(v.get("music"), dict) else {}
     zoom = v.get("zoom") if isinstance(v.get("zoom"), dict) else {}
+    sfx = v.get("sfx") if isinstance(v.get("sfx"), dict) else {}
     return {"v": 1, "aspect": pick(v.get("aspect"), ASPECTS, "16:9"), "layout": pick(v.get("layout"), LAYOUTS, "pip"),
             "bg": pick(v.get("bg"), BGS, "red"), "pad": num(v.get("pad"), 0, 0.16, 0.05), "radius": num(v.get("radius"), 0, 40, 14, 0),
             "cam": cam(v.get("cam")), "zoom": {"auto": zoom.get("auto") is not False, "level": num(zoom.get("level"), 1.2, 3, 1.7, 2)},
             "transition": pick(v.get("transition"), TRANSITIONS, "fade"), "voice": num(v.get("voice"), 0, 2, 1, 2),
-            "music": {"vol": num(music.get("vol"), 0, 1, 0.25, 2), "name": s(music.get("name"), 120), "duck": music.get("duck") is not False},
+            "music": {"vol": num(music.get("vol"), 0, 1, 0.25, 2), "name": s(music.get("name"), 120), "duck": music.get("duck") is not False,
+                      "gen": pick(music.get("gen"), BEATS, "")},
+            "sfx": {"clicks": bool(sfx.get("clicks")), "whoosh": bool(sfx.get("whoosh")), "vol": num(sfx.get("vol"), 0, 1, 0.6, 2)},
+            "voice_fx": pick(v.get("voice_fx"), VOICE_FX, "off"), "captions": captions(v.get("captions")),
             "watermark": s(v.get("watermark"), 40), "progress": bool(v.get("progress")), "scenes": scenes}
 
 
@@ -172,7 +224,17 @@ def publish(v):
     return {"title": s(v.get("title"), 100), "titles": titles, "description": s(v.get("description"), 5000, multiline=True),
             "tags": s(v.get("tags"), 500), "hashtags": s(v.get("hashtags"), 300), "pinned": s(v.get("pinned"), 1000, multiline=True),
             "caption": s(v.get("caption"), 2200, multiline=True),
-            "checks": {ident(k): bool(x) for k, x in list(checks.items())[:30] if ident(k)}}
+            "checks": {ident(k): bool(x) for k, x in list(checks.items())[:30] if ident(k)}, "yt": yt(v.get("yt"))}
+
+
+def yt(v):
+    """What the direct YouTube upload returned: the video id, privacy and when."""
+    v = v if isinstance(v, dict) else {}
+    vid = s(v.get("id"), 20)
+    if not re.match(r"^[A-Za-z0-9_-]{6,20}$", vid):
+        return {}
+    return {"id": vid, "privacy": pick(v.get("privacy"), PRIVACY, "private"), "at": s(v.get("at"), 30), "publish_at": s(v.get("publish_at"), 30),
+            "captions": bool(v.get("captions")), "thumb": bool(v.get("thumb"))}
 
 
 def thumb(v):

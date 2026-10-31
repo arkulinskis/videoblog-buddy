@@ -350,6 +350,11 @@ db_schema:
         width: 200
       name: is_demo
       type: bool
+    - admin_ui:
+        order: 19
+        width: 200
+      name: words
+      type: simpleObject
     indexes: []
     server: full
     title: Takes
@@ -452,6 +457,12 @@ db_schema:
       client_hidden: false
       name: handle
       type: string
+    - admin_ui:
+        order: 16
+        width: 200
+      client_hidden: false
+      name: weekly_goal
+      type: number
     indexes: []
     server: full
     title: Users
@@ -555,6 +566,16 @@ db_schema:
         width: 200
       name: is_demo
       type: bool
+    - admin_ui:
+        order: 19
+        width: 200
+      name: priority
+      type: number
+    - admin_ui:
+        order: 20
+        width: 200
+      name: script_versions
+      type: simpleObject
     indexes: []
     server: full
     title: Videos
@@ -565,7 +586,7 @@ metadata:
   title: 'VideoBlog Buddy: screen recorder and video editor for app makers'
 name: VideoBlog Buddy
 native_deps:
-  head_html: "<script src=\"_/theme/legal-kit.js?v=22df51b7d0\"></script>\n<meta name=\"viewport\" content=\"width=device-width,\
+  head_html: "<script src=\"_/theme/legal-kit.js?v=0f1004760f\"></script>\n<meta name=\"viewport\" content=\"width=device-width,\
     \ initial-scale=1, viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#cc181e\">\n<meta name=\"apple-mobile-web-app-capable\"\
     \ content=\"yes\">\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link rel=\"preconnect\" href=\"\
     https://fonts.gstatic.com\" crossorigin>\n<link href=\"https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Condensed:wght@700&family=Anton&family=Permanent+Marker&family=Bebas+Neue&display=swap\"\
@@ -574,7 +595,7 @@ native_deps:
     \ its own <link rel=\"icon\">, so drop any other icon link. */\n(function () {\n  function keep() {\n    var ours = document.getElementById('ui-favicon');\n\
     \    if (!ours) return;\n    document.querySelectorAll('link[rel~=\"icon\"]').forEach(function (l) { if (l !== ours) l.remove();\
     \ });\n  }\n  keep();\n  document.addEventListener('DOMContentLoaded', keep);\n  window.addEventListener('load', keep);\n\
-    })();\n</script>\n<link rel=\"stylesheet\" href=\"_/theme/app.css?v=5c6d5db4c4\">\n<script src=\"_/theme/app.js?v=b4e74e443e\"\
+    })();\n</script>\n<link rel=\"stylesheet\" href=\"_/theme/app.css?v=5f194dd11a\">\n<script src=\"_/theme/app.js?v=cd75467a31\"\
     ></script>\n"
 package_name: VideoBlog_Buddy
 runtime_options:

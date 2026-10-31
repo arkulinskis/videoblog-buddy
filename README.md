@@ -8,7 +8,8 @@ Recordings never leave the user's computer. Classic red-and-white "broadcast you
 
 - **App repo:** github.com/arkulinskis/videoblog-buddy (branch `master`). Anvil pulls `master`.
 - **Live:** https://videoblog-buddy.anvil.app
-- **Browser extension:** source in `extension/`, served zipped at `_/theme/videoblog-buddy-extension.zip` (load unpacked).
+- **Browser extension:** source in `extension/`, served zipped at `_/theme/videoblog-buddy-extension.zip` (load unpacked). Chrome Web Store
+  kit in `extension/store/` (listing, permission answers, images, store zip; steps in `PUBLISH.md`).
 
 ## What it does
 
@@ -18,7 +19,7 @@ FAQ; the extension page (`#extension`); sign-up; feedback; Privacy & Terms.
 **For members:**
 - **Studio** (`#home`): channel banner, stats (videos, published, minutes recorded, exports), every video as a card with
   status, length and app (filters, app filter, search, "⋯" menu: open, record, edit, make a Short/Reel version, delete),
-  8 achievements, storage on this computer (+ "keep them safe" persistent storage, manage files), extension status,
+  a weekly publishing goal (ring + "Goal getter" badge), 11 achievements, storage on this computer (+ "keep them safe" persistent storage, manage files), extension status,
   your apps. Rescues unfinished recordings (a crashed tab loses at most a second). New accounts get a sample project.
 - **Record** (`#record[/video]`): Screen + camera, Screen only, Camera only; camera + mic pickers, live mic level and a
   "is your mic muted?" warning, tab/system sound, camera bubble shape and corner, 720p/1080p, countdown, teleprompter
@@ -28,9 +29,13 @@ FAQ; the extension page (`#extension`); sign-up; feedback; Privacy & Terms.
 - **Video** (`#video/<id>`): player for the current edit (classic red progress bar with chapter ticks), title, status
   pipeline (Idea → Script → Recorded → Edited → Published), app, format, publish-by date; tabs:
   **Takes** (rename, star, download, delete, re-link a file recorded elsewhere), **Script** (writer with live preview,
-  8 built-in + admin templates filled from the app's details, word count / spoken length, full-screen teleprompter),
+  8 built-in + admin templates filled from the app's details, word count / spoken length, full-screen teleprompter,
+  Hook lab (12 hooks), script check-up (score + fixes), release notes / commits → "What's new" script, "Ask an AI" prompts
+  to copy into any AI chat (nothing is sent), versions (one per 10 minutes, restore), "Make a 60-second Short from this script"),
   **Publish kit** (title ideas, description with chapters from markers, tags, hashtags, pinned comment, Shorts/Reels
-  caption, copy buttons, upload checklist with automatic ticks, YouTube link, mark as published with confetti),
+  caption, copy buttons, upload checklist with automatic ticks, **Upload to YouTube** (the exported file goes straight from the
+  browser to the channel with Google sign-in: private/unlisted/public/scheduled, category, made for kids, thumbnail,
+  captions .srt), YouTube link, mark as published with confetti),
   **Thumbnail** (5 layouts, big words, colours, emoji, frame from any take, face circle from the camera, red arrow;
   saves the library picture, downloads a 1280×720 JPG under 2 MB).
 - **Editor** (`#edit/<id>`): scenes strip (takes + title cards; drag to reorder), the selected take's track (waveform,
@@ -40,11 +45,17 @@ FAQ; the extension page (`#extension`); sign-up; feedback; Privacy & Terms.
   mute; text overlays (name tag, callout, subtitle, big title, sticky note); title cards (app, classic, bold, minimal,
   animated "subscribe"); style: 16:9 / 9:16 / 1:1, layouts (camera bubble, stacked, follow-the-action crop, side by side,
   screen, camera), backgrounds, padding, rounded corners, bubble shape/size/corner/border, transitions (cut, fade, flash),
-  watermark, red progress bar; audio: voice volume, background music (ducks under your voice in the export).
+  watermark, red progress bar; **Words** tab: captions written on this computer (Whisper speech-to-text in the browser, or
+  "use my script"), 4 caption styles (karaoke, clean, big & bold, TV box), the transcript (click to jump, shift-click to select,
+  cut/restore words, fix words), remove filler words, .srt download; **hide/highlight boxes** (blur, spotlight, red box; drawn on
+  a frame); end-screen card; audio: voice volume, clean voice, Buddy beats (4 generated tracks) or your own music (ducks under
+  your voice in the export), click and whoosh sound effects. Export done → upload to YouTube, captions .srt.
   Undo/redo, autosave, keyboard (space, arrows, S, Ctrl+Z). Export in the browser to MP4 (or WebM) at 1080p/720p with a
   live preview; then publish kit / thumbnail links and badges.
-- **Planner** (`#planner`): Idea → Published board (drag or arrows; phone shows one column), "coming up" by due date,
-  app filter, idea machine (8 ideas per app, added with a script already written).
+- **Planner** (`#planner`): Idea → Published board (drag or arrows; phone shows one column), quick idea box, 🔥 excitement
+  rating (best ideas first), a month calendar (drag unscheduled videos onto a day, click a day to plan one), "coming up" by
+  due date, app filter, idea machine (8 ideas per app, added with a script already written). Studio ⋯ menu: "Shorts from
+  chapters" (one vertical Short per chapter marker).
 - **Apps** (`#apps[/id]`): the apps you make videos about (emoji, colour, link, pitch, audience, features, call to action)
   and each one's videos and ideas.
 - **Teleprompter** (`#prompter/<id>`): full screen, speed, size, mirror, keyboard.
@@ -53,8 +64,9 @@ FAQ; the extension page (`#extension`); sign-up; feedback; Privacy & Terms.
   Alt+Shift+R/P/M from any tab, popup controls. It only talks to sites you connect in its popup.
 
 **For admins** (`#admin`; arkulinskis@gmail.com becomes an admin on first sign-in): overview (users, active, videos,
-takes, minutes, exports, vertical exports, apps, extension takes) + a 14-day chart, **script templates** (add, edit,
-feature, hide), feedback inbox, users, demo data (community templates by demo people).
+takes, minutes, exports, vertical exports, apps, extension takes, captioned takes, YouTube uploads) + a 14-day chart,
+**script templates** (add, edit, feature, hide), **settings** (Google OAuth client ID for YouTube upload, with setup steps;
+the extension's Chrome Web Store page), feedback inbox, users, demo data (community templates by demo people).
 
 ## Setting it up in Anvil (once)
 
@@ -71,7 +83,8 @@ See `.claude/skills/videoblogbuddy/SKILL.md`. In short:
 ```
 python -I tools/check.py --ui                    # syntax, server tests, headless UI tests (real recording + export) → ALL CHECKS PASSED
 python -I tools/preview/devserver.py 8794        # the app on in-memory data: http://localhost:8794/  (?as=ana#home, ?as=admin#admin)
-python -I tools/build_extension.py               # after changing extension/: icons + assets/videoblog-buddy-extension.zip
+python -I tools/build_extension.py               # after changing extension/: icons + the app's zip + the store zip
+python -I tools/store_assets.py                  # Chrome Web Store screenshots + promo tiles (extension/store/)
 python tools/deploy.py                           # dry run (needs PyYAML, so no -I)
 python tools/deploy.py --push "Message"          # deploy: commit + push to GitHub, Anvil pulls it
 ```
@@ -81,10 +94,12 @@ python tools/deploy.py --push "Message"          # deploy: commit + push to GitH
 ```
 web/            core.js/core.css (engine + design tokens), app.js (header, footer), pages/*.html
                 _a_core (VB helpers, vault, extension bridge, sample drawings), _b_engine (plan, render, player, export,
-                thumbnails), _c_recorder (recorder, floating window, teleprompter), _d_kit (templates, ideas, publish kit)
+                thumbnails), _c_recorder (recorder, floating window, teleprompter), _d_kit (templates, ideas, publish kit),
+                _e_words (captions, transcripts), _f_youtube (settings, YouTube upload), _g_write (script tools), _h_sound (beats, effects)
 client_code/    Main.py (the only Anvil form), legal.py
 server_code/    common, Accounts, Feedback, Admin, DemoData, legal_server, Studio (videos, takes, exports, stats, badges),
-                Products (apps), Templates (admin script templates), Clean (validates edits/publish/markers/clicks), Sample
+                Products (apps), Templates (admin script templates), Settings (YouTube client id, store page), Clean (validates
+                edits/publish/markers/clicks/words), Sample
 extension/      the Chrome extension (manifest, background.js, content.js, popup.*, icons/)
 assets/         icon.svg + PNG icons, videoblog-buddy-extension.zip (served at _/theme/<name>)
 tools/          sync_to_anvil.py (settings + schema), deploy.py, check.py, build_extension.py, preview/, testing/

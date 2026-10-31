@@ -60,7 +60,7 @@ def make(user):
                                       status="edited", due=(now + dt.timedelta(days=3)).date(), script=SCRIPT,
                                       edit={}, publish={}, thumb="", thumb_design={}, duration=0, youtube_url="",
                                       notes="This is a sample. Play it, change it, export it. Delete it whenever you like.",
-                                      sample=True, created=now, updated=now, is_demo=False)
+                                      sample=True, created=now, updated=now, is_demo=False, priority=2, script_versions=[])
     ids = {}
     for key, t in TAKES.items():
         row = app_tables.takes.add_row(video=video, owner=user, key="sample-" + key, label=t["label"], mode=t["mode"],
@@ -89,5 +89,6 @@ def make(user):
     app_tables.videos.add_row(owner=user, product=prod, title="3 watering mistakes that kill basil", kind="short", status="idea",
                               due=(now + dt.timedelta(days=9)).date(), script="", edit={}, publish={}, thumb="", thumb_design={},
                               duration=0, youtube_url="", notes="Sample idea: a vertical Short. Drag it along the planner as it moves.",
-                              sample=True, created=now - dt.timedelta(minutes=1), updated=now - dt.timedelta(minutes=1), is_demo=False)
+                              sample=True, created=now - dt.timedelta(minutes=1), updated=now - dt.timedelta(minutes=1), is_demo=False,
+                              priority=3, script_versions=[])
     return video

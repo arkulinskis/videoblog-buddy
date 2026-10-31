@@ -7,7 +7,7 @@ words to publish it (title, description with chapters, tags, captions). A planne
 Recordings never leave the user's computer. Classic red-and-white "broadcast yourself" look. Built on [Anvil](https://anvil.works).
 
 - **App repo:** github.com/arkulinskis/videoblog-buddy (branch `master`). Anvil pulls `master`.
-- **Live:** not published yet (planned videoblogbuddy.anvil.app).
+- **Live:** https://videoblog-buddy.anvil.app
 - **Browser extension:** source in `extension/`, served zipped at `_/theme/videoblog-buddy-extension.zip` (load unpacked).
 
 ## What it does

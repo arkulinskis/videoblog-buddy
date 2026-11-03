@@ -22,7 +22,16 @@ BOX_KINDS = ("blur", "spot", "box")
 CAPTION_STYLES = ("clean", "karaoke", "bold", "box")
 CAPTION_POS = ("bottom", "middle", "top")
 BEATS = ("", "lofi", "upbeat", "chill", "techno")
-VOICE_FX = ("off", "clean")
+VOICE_FX = ("off", "clean", "broadcast", "warm")
+LUTS = ("none", "studio", "news", "warm", "cool", "teal", "film", "golden", "airy", "moody", "neon", "green", "vintage", "bleach", "bw",
+        "noir", "cube")
+LOOK_TARGETS = ("cam", "all")
+FRAME_STYLES = ("desk", "ticker", "breaking", "bug", "live", "studio", "panel", "glass", "sport", "minimal", "headline", "quote", "rec")
+FRAME_TRANS = ("none", "fade", "slide_l", "slide_r", "slide_u", "slide_d", "wipe", "split", "zoom", "pop", "blur", "flip", "drop")
+FRAME_FONTS = ("condensed", "anton", "bebas", "roboto", "serif", "mono")
+FRAME_POS = ("bl", "br", "tl", "tr")
+PRESET_KINDS = ("frame", "look")
+MAX_FRAMES = 12
 WORD_SOURCES = ("whisper", "script", "sample", "typed")
 PRIVACY = ("private", "unlisted", "public")
 
@@ -171,6 +180,69 @@ def words(v):
     return {"src": pick(v.get("src"), WORD_SOURCES, "typed"), "lang": s(v.get("lang"), 12) or "en", "words": out}
 
 
+def look(v):
+    """The colour look: a LUT (built in, or a .cube kept in the browser), light and colour fixes, key light, reframe."""
+    v = v if isinstance(v, dict) else {}
+    light = v.get("light") if isinstance(v.get("light"), dict) else {}
+    crop = v.get("crop") if isinstance(v.get("crop"), dict) else {}
+    out = {"on": bool(v.get("on")), "target": pick(v.get("target"), LOOK_TARGETS, "cam"), "lut": pick(v.get("lut"), LUTS, "none"),
+           "amt": num(v.get("amt"), 0, 1, 1, 2), "cube": s(v.get("cube"), 60), "exposure": num(v.get("exposure"), -2, 2, 0, 2)}
+    for k in ("contrast", "highlights", "shadows", "temp", "tint", "sat", "vib"):
+        out[k] = num(v.get(k), -1, 1, 0, 2)
+    for k in ("fade", "sharpen", "smooth", "grain", "vignette"):
+        out[k] = num(v.get(k), 0, 1, 0, 2)
+    out["light"] = {"on": bool(light.get("on")), "x": num(light.get("x"), 0, 1, 0.5, 3), "y": num(light.get("y"), 0, 1, 0.38, 3),
+                    "size": num(light.get("size"), 0.08, 1, 0.35, 2), "power": num(light.get("power"), 0, 1, 0.4, 2),
+                    "warm": num(light.get("warm"), -1, 1, 0.3, 2)}
+    out["crop"] = {"z": num(crop.get("z"), 1, 2.5, 1, 2), "x": num(crop.get("x"), 0, 1, 0.5, 3), "y": num(crop.get("y"), 0, 1, 0.5, 3),
+                   "mirror": bool(crop.get("mirror"))}
+    if out["lut"] == "cube" and not out["cube"]:
+        out["lut"] = "none"
+    return out
+
+
+def frame(v, index=0, design_only=False):
+    """One on-screen frame (a newsroom graphic). design_only: a layer of a saved preset (no id)."""
+    if not isinstance(v, dict) or v.get("style") not in FRAME_STYLES:
+        return None
+    a, e = num(v.get("s"), 0, MAX_SECONDS, 0, 2), num(v.get("e"), 0, MAX_SECONDS, 8, 2)
+    if e - a < 0.3:
+        e = a + 3
+    out = {"style": v.get("style"), "tag": s(v.get("tag"), 24), "title": s(v.get("title"), 90), "sub": s(v.get("sub"), 240, multiline=True),
+           "ticker": s(v.get("ticker"), 500), "logo": s(v.get("logo"), 24), "color": color(v.get("color"), "#cc181e"),
+           "accent": color(v.get("accent"), "#ffc400"), "font": pick(v.get("font"), FRAME_FONTS, "condensed"),
+           "pos": pick(v.get("pos"), FRAME_POS, "bl"), "size": num(v.get("size"), 0.6, 1.6, 1, 2), "clock": bool(v.get("clock")),
+           "speed": num(v.get("speed"), 0.3, 3, 1, 2), "all": v.get("all") is not False, "s": a, "e": e, "cards": bool(v.get("cards")),
+           "tin": pick(v.get("tin"), FRAME_TRANS, "fade"), "tout": pick(v.get("tout"), FRAME_TRANS, "fade"),
+           "din": num(v.get("din"), 0.1, 3, 0.6, 2), "dout": num(v.get("dout"), 0.1, 3, 0.5, 2)}
+    if not design_only:
+        out["id"] = ident(v.get("id")) or "f%d" % index
+    return out
+
+
+def frames(v):
+    out, seen = [], set()
+    for i, f in enumerate((v if isinstance(v, list) else [])[:MAX_FRAMES]):
+        c = frame(f, i)
+        if c:
+            if c["id"] in seen:
+                c["id"] = "f%d" % i
+                while c["id"] in seen:
+                    c["id"] += "x"
+            seen.add(c["id"])
+            out.append(c)
+    return out
+
+
+def preset(kind, v):
+    """What a saved preset keeps: a frame set {layers: [...]} or a look."""
+    v = v if isinstance(v, dict) else {}
+    if kind == "look":
+        return look(dict(v, on=True))
+    raw = v.get("layers") if isinstance(v.get("layers"), list) else []
+    return {"layers": [f for f in (frame(x, i, design_only=True) for i, x in enumerate(raw[:MAX_FRAMES])) if f]}
+
+
 def scene(v, take_ids):
     if not isinstance(v, dict):
         return None
@@ -214,7 +286,8 @@ def edit(v, take_ids):
                       "gen": pick(music.get("gen"), BEATS, "")},
             "sfx": {"clicks": bool(sfx.get("clicks")), "whoosh": bool(sfx.get("whoosh")), "vol": num(sfx.get("vol"), 0, 1, 0.6, 2)},
             "voice_fx": pick(v.get("voice_fx"), VOICE_FX, "off"), "captions": captions(v.get("captions")),
-            "watermark": s(v.get("watermark"), 40), "progress": bool(v.get("progress")), "scenes": scenes}
+            "watermark": s(v.get("watermark"), 40), "progress": bool(v.get("progress")), "look": look(v.get("look")),
+            "frames": frames(v.get("frames")), "scenes": scenes}
 
 
 def publish(v):

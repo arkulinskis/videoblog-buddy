@@ -116,6 +116,58 @@ db_schema:
     indexes: []
     server: full
     title: Feedback
+  presets:
+    client: none
+    columns:
+    - admin_ui:
+        order: 0
+        width: 200
+      name: owner
+      target: users
+      type: link_single
+    - admin_ui:
+        order: 1
+        width: 200
+      name: kind
+      type: string
+    - admin_ui:
+        order: 2
+        width: 200
+      name: name
+      type: string
+    - admin_ui:
+        order: 3
+        width: 200
+      name: emoji
+      type: string
+    - admin_ui:
+        order: 4
+        width: 200
+      name: data
+      type: simpleObject
+    - admin_ui:
+        order: 5
+        width: 200
+      name: uses
+      type: number
+    - admin_ui:
+        order: 6
+        width: 200
+      name: created
+      type: datetime
+    - admin_ui:
+        order: 7
+        width: 200
+      name: updated
+      type: datetime
+    - admin_ui:
+        order: 8
+        width: 200
+      name: is_demo
+      type: bool
+    indexes: []
+    server: full
+    title: Presets
   products:
     client: none
     columns:
@@ -586,7 +638,7 @@ metadata:
   title: 'VideoBlog Buddy: screen recorder and video editor'
 name: VideoBlog Buddy
 native_deps:
-  head_html: "<script src=\"_/theme/legal-kit.js?v=67ab0fbeb7\"></script>\n<!-- seo:start (APP_MAKER/seo: edit seo/apps/videoblogbuddy.json\
+  head_html: "<script src=\"_/theme/legal-kit.js?v=c167f81117\"></script>\n<!-- seo:start (APP_MAKER/seo: edit seo/apps/videoblogbuddy.json\
     \ and run seo.py, not here) -->\n<link rel=\"canonical\" href=\"https://videoblog-buddy.anvil.app/\">\n<meta name=\"robots\"\
     \ content=\"index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1\">\n<meta name=\"keywords\" content=\"\
     screen recorder online, browser video editor, record screen and webcam, YouTube video maker, Loom alternative, app demo\
@@ -621,7 +673,7 @@ native_deps:
     \ \"addressRegion\": \"QC\", \"addressCountry\": \"CA\"}}]}</script>\n<!-- seo:end -->\n<meta name=\"viewport\" content=\"\
     width=device-width, initial-scale=1, viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#cc181e\">\n<meta name=\"\
     apple-mobile-web-app-capable\" content=\"yes\">\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link\
-    \ rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n<link href=\"https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Condensed:wght@700&family=Anton&family=Permanent+Marker&family=Bebas+Neue&display=swap\"\
+    \ rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n<link href=\"https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Condensed:wght@700&family=Anton&family=Permanent+Marker&family=Bebas+Neue&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@700&display=swap\"\
     \ rel=\"stylesheet\">\n<link id=\"ui-favicon\" rel=\"icon\" type=\"image/svg+xml\" href=\"_/theme/icon.svg?v=0347260d09\"\
     >\n<link rel=\"apple-touch-icon\" href=\"_/theme/icon-180.png?v=0347260d09\">\n<script>\n/* Keep our tab icon: Anvil adds\
     \ its own <link rel=\"icon\">, so drop any other icon link. */\n(function () {\n  function keep() {\n    var ours = document.getElementById('ui-favicon');\n\
@@ -630,7 +682,7 @@ native_deps:
     })();\n</script>\n\n<!-- Prepsto feedback panel: every \"Submit feedback\" link and button opens it (it is the only feedback\
     \ channel). No floating button, no cookies, nothing loads until it is opened. Codes: APP_MAKER/prepsto-links.json -->\n\
     <script src=\"https://prepsto.com/_/theme/widget.js\" data-prepsto=\"6nb7x2q\" data-button=\"false\" data-label=\"Submit\
-    \ feedback\" async></script>\n<link rel=\"stylesheet\" href=\"_/theme/app.css?v=792c38134e\">\n<script src=\"_/theme/app.js?v=63f8ceed06\"\
+    \ feedback\" async></script>\n<link rel=\"stylesheet\" href=\"_/theme/app.css?v=2d70aecd06\">\n<script src=\"_/theme/app.js?v=12ff203ae7\"\
     ></script>\n"
 package_name: VideoBlog_Buddy
 runtime_options:

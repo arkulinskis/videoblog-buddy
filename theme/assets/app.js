@@ -603,7 +603,8 @@
       cam: Object.assign({ pos: 'br', size: 0.24, shape: 'circle', border: true, hidden: false }, UI.store.get('rec.cam', {})), zoom: { auto: true, level: 1.7 },
       transition: 'fade', voice: 1, music: { vol: 0.25, name: '', duck: true, gen: '' }, watermark: '', progress: vert,
       sfx: { clicks: false, whoosh: false, vol: 0.6 }, voice_fx: 'off',
-      captions: { on: false, style: vert ? 'bold' : 'karaoke', pos: vert ? 'middle' : 'bottom', size: 1, upper: false, color: '#ffde00' }, scenes: [] };
+      captions: { on: false, style: vert ? 'bold' : 'karaoke', pos: vert ? 'middle' : 'bottom', size: 1, upper: false, color: '#ffde00' },
+      look: VB.fullLook(UI.store.get('vb.look', null)), frames: [], scenes: [] };
   };
   VB.fullEdit = function (e, kind) {  // fill in anything missing (old or empty edits)
     var d = VB.DEFAULT_EDIT(kind), out = {};
@@ -614,6 +615,9 @@
     out.music = Object.assign({}, d.music, e.music || {});
     out.sfx = Object.assign({}, d.sfx, e.sfx || {});
     out.captions = Object.assign({}, d.captions, e.captions || {});
+    // The default look (Look tab -> "Use for new videos") only goes on new edits, never on older ones.
+    out.look = VB.fullLook(e.look ? JSON.parse(JSON.stringify(e.look)) : (e.scenes && e.scenes.length ? null : d.look));
+    out.frames = (e.frames || []).map(function (f) { return JSON.parse(JSON.stringify(f)); });
     out.scenes = (e.scenes || []).map(function (s) { return JSON.parse(JSON.stringify(s)); });
     return out;
   };
@@ -634,6 +638,8 @@
     e.scenes.push(VB.cardScene(p.name ? 'app' : 'classic', p.name || video.title, p.name ? (p.tagline || video.title) : '', p.color, p.emoji));
     takes.slice().sort(function (a, b) { return (b.starred ? 1 : 0) - (a.starred ? 1 : 0); }).forEach(function (t) { e.scenes.push(VB.takeScene(t)); });
     e.scenes.push(VB.cardScene('subscribe', p.cta ? p.cta + (p.name ? ': ' + p.name : '') : 'Thanks for watching!', p.url ? p.url.replace(/^https?:\/\//, '') : (handle || 'Subscribe for more'), '#cc181e', p.emoji));
+    var auto = UI.store.get('vb.frames', null);  // frames chosen for every new video (Frames tab)
+    if (auto && auto.layers && auto.layers.length) e.frames = VB.framesFrom(auto.layers, { name: UI.me && UI.me.name, handle: handle, product: product });
     return e;
   };
 
@@ -1411,7 +1417,7 @@
 
   /* ------------------------------------------------------------------ captions */
   VB.CAPTION_STYLES = [['karaoke', 'Karaoke'], ['clean', 'Clean'], ['bold', 'Big & bold'], ['box', 'TV box']];
-  function drawCaptions(g, W, H, e, s, t, progress) {
+  function drawCaptions(g, W, H, e, s, t, progress, floor) {
     var c = e.captions; if (!c || !c.on || !s.cues || !s.cues.length) return;
     var cue = null;
     for (var i = 0; i < s.cues.length; i++) { var q = s.cues[i]; if (t >= q.s - 0.04 && t <= q.hold) { cue = q; break; } if (q.s > t) break; }
@@ -1429,7 +1435,9 @@
       if (lines[L].length && lw[L] + add > maxW) { lines.push([it]); lw.push(it.width); } else { lines[L].push(it); lw[L] += add; }
     });
     var lh = fs * (bold ? 1.08 : 1.28), total = lines.length * lh;
-    var y0 = c.pos === 'top' ? m * 0.1 + lh / 2 : c.pos === 'middle' ? H / 2 - total / 2 + lh / 2 : (vert ? H * 0.7 : H - m * 0.09 - (progress ? m * 0.012 : 0)) - total + lh / 2;
+    var base = vert ? H * 0.7 : H - m * 0.09 - (progress ? m * 0.012 : 0);
+    if (floor && floor < H) base = Math.min(base, floor - m * 0.025);  // stay above a lower third or ticker
+    var y0 = c.pos === 'top' ? m * 0.1 + lh / 2 : c.pos === 'middle' ? H / 2 - total / 2 + lh / 2 : base - total + lh / 2;
     var pop = bold ? 0.86 + 0.14 * VB.ease((t - cue.s) / 0.12) : 1;
     lines.forEach(function (line, li) {
       var y = y0 + li * lh, x = W / 2 - lw[li] / 2;
@@ -1614,7 +1622,17 @@
     if (lay === 'cam') return { lay: 'camfull', cam: cam, has: has };
     return { lay: lay, cam: cam, has: has };
   }
-  function drawTake(g, W, H, plan, L) {
+  /* The edit's colour look for the camera, and (if asked) the screen without the camera-only parts. */
+  function looksFor(e) {
+    var lk = e.look;
+    if (!VB.lookActive || !VB.lookActive(lk)) return null;
+    if (looksFor.src !== lk || looksFor.json !== JSON.stringify(lk)) {
+      looksFor.src = lk; looksFor.json = JSON.stringify(lk);
+      looksFor.val = { cam: lk, screen: lk.target === 'all' ? Object.assign({}, lk, { light: { on: false }, crop: { z: 1, x: 0.5, y: 0.5, mirror: false } }) : null };
+    }
+    return looksFor.val;
+  }
+  function drawTake(g, W, H, plan, L, o, opt) {
     var e = plan.edit, s = L.s, src = s.src, m = Math.min(W, H);
     if (!src || src.missing) {
       g.fillStyle = '#181818'; g.fillRect(0, 0, W, H); g.fillStyle = '#aaa'; g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -1624,7 +1642,14 @@
     }
     src.frame(L.srcT);
     var Lo = layoutOf(plan, s), pad = (e.pad || 0) * m, rad = (e.pad > 0.004 ? e.radius || 0 : 0) * m / 1080, zoom = VB.zoomAt(s.zooms, L.srcT);
-    var main = src.main, cam = src.cam;
+    var main = src.main, cam = src.cam, lk = opt && opt.noLook ? null : looksFor(e);
+    if (lk) {
+      if (s.take.mode === 'cam') main = VB.gradeSource('main', main, lk.cam, o);
+      else {
+        if (cam) cam = VB.gradeSource('cam', cam, lk.cam, o);
+        if (lk.screen) main = VB.gradeSource('main', main, lk.screen, o);
+      }
+    }
     var bx = s.sc.boxes, t = L.srcT;
     if (Lo.lay === 'full' || Lo.lay === 'camfull') {
       var img = Lo.lay === 'full' ? main : cam;
@@ -1671,13 +1696,14 @@
       g.font = '500 ' + fontPx(W, H, 0.04) + 'px Roboto, Arial'; g.fillText('Add a take or a title card to start', W / 2, H / 2);
       g.restore(); return null;
     }
+    var hasFrames = !opt.noFrames && e.frames && e.frames.length && VB.drawFrames;
     if (L.s.type === 'card') drawCard(g, W, H, L.s.sc, L.local, L.s.dur, opt);
     else {
-      drawTake(g, W, H, plan, L);
+      drawTake(g, W, H, plan, L, o, opt);
       (L.s.sc.texts || []).forEach(function (tx) {
         if (L.srcT >= tx.s && L.srcT <= tx.e && tx.id !== opt.hideTextId) drawText(g, W, H, tx, (L.srcT - tx.s) / L.s.speed, (tx.e - tx.s) / L.s.speed);
       });
-      if (!opt.noCaptions) drawCaptions(g, W, H, e, L.s, L.srcT, e.progress);
+      if (!opt.noCaptions) drawCaptions(g, W, H, e, L.s, L.srcT, e.progress, hasFrames && e.captions && e.captions.on ? VB.frameFloor(W, H, plan, o, L) : 0);
     }
     var m = Math.min(W, H);
     if (e.watermark && L.s.type !== 'card') {
@@ -1699,6 +1725,8 @@
       if (edgeOut < T && (!last || e.transition === 'fade')) a = Math.max(a, 1 - edgeOut / T);
       if (a > 0 && d >= 0) { g.globalAlpha = VB.ease(a); g.fillStyle = e.transition === 'dip' ? '#fff' : '#000'; g.fillRect(0, 0, W, H); g.globalAlpha = 1; }
     }
+    // Frames go on last, so they stay put when the scene under them changes (like a TV studio graphic).
+    if (hasFrames) VB.drawFrames(g, W, H, plan, o, L, opt);
     g.restore();
     return L;
   };
@@ -1834,6 +1862,24 @@
     for (var i = 0; i < list.length; i++) if (MediaRecorder.isTypeSupported(list[i])) return list[i];
     return null;
   };
+  /* Voice presets for the export. -> the last node of the chain (input = the voice gain). */
+  VB.VOICE_FX = [['off', 'As recorded'], ['clean', 'Clean'], ['broadcast', 'Broadcast'], ['warm', 'Warm podcast']];
+  VB.voiceChain = function (ac, input, kind) {
+    function bq(type, f, gain, q) { var n = ac.createBiquadFilter(); n.type = type; n.frequency.value = f; if (gain != null) n.gain.value = gain; if (q != null) n.Q.value = q; return n; }
+    function comp(th, ratio, at, rel, knee) { var c = ac.createDynamicsCompressor(); c.threshold.value = th; c.ratio.value = ratio; c.attack.value = at; c.release.value = rel; c.knee.value = knee; return c; }
+    function gainN(v) { var n = ac.createGain(); n.gain.value = v; return n; }
+    var chain;
+    if (kind === 'clean') {  // cut the rumble, a little presence, even out the level
+      chain = [bq('highpass', 85, null, 0.7), bq('lowshelf', 180, -2), bq('peaking', 3200, 3, 0.9), comp(-26, 3.5, 0.008, 0.2, 8), gainN(1.45)];
+    } else if (kind === 'broadcast') {  // radio voice: tight lows, forward mids, air, strong levelling and a limiter
+      chain = [bq('highpass', 95, null, 0.8), bq('lowshelf', 220, -3), bq('peaking', 3500, 4, 1), bq('highshelf', 9000, 2.5), comp(-30, 5, 0.004, 0.15, 6), gainN(1.9), comp(-3, 20, 0.001, 0.05, 0)];
+    } else if (kind === 'warm') {  // podcast: fuller lows, softer highs, gentle levelling
+      chain = [bq('highpass', 70, null, 0.7), bq('lowshelf', 160, 2.5), bq('peaking', 2600, -1.5, 0.8), bq('highshelf', 8000, -2), comp(-24, 3, 0.01, 0.25, 10), gainN(1.4), comp(-2, 20, 0.002, 0.08, 0)];
+    } else return input;
+    var last = input;
+    chain.forEach(function (n) { last.connect(n); last = n; });
+    return last;
+  };
   VB.canExport = function () { return !!(VB.recorderType() && HTMLCanvasElement.prototype.captureStream && window.AudioContext); };
   function nextFrame() {
     return new Promise(function (res) {
@@ -1860,16 +1906,9 @@
       var p2 = VB.plan(plan.edit, Object.keys(takes).map(function (k) { return takes[k]; }), srcs);
       var ac = new (window.AudioContext || window.webkitAudioContext)(); cleanup.push(function () { ac.close(); });
       await ac.resume();
-      var dest = ac.createMediaStreamDestination(), voice = ac.createGain(), voiceOut = voice;
-      if (plan.edit.voice_fx === 'clean') {
-        // "Clean voice": cut the rumble, a little presence, even out the level.
-        var hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 85; hp.Q.value = 0.7;
-        var pk = ac.createBiquadFilter(); pk.type = 'peaking'; pk.frequency.value = 3200; pk.Q.value = 0.9; pk.gain.value = 3;
-        var lo = ac.createBiquadFilter(); lo.type = 'lowshelf'; lo.frequency.value = 180; lo.gain.value = -2;
-        var cp = ac.createDynamicsCompressor(); cp.threshold.value = -26; cp.ratio.value = 3.5; cp.attack.value = 0.008; cp.release.value = 0.2; cp.knee.value = 8;
-        var mk = ac.createGain(); mk.gain.value = 1.45;
-        voice.connect(hp); hp.connect(lo); lo.connect(pk); pk.connect(cp); cp.connect(mk); voiceOut = mk;
-      }
+      await VB.loadFrameFonts();
+      var dest = ac.createMediaStreamDestination(), voice = ac.createGain();
+      var voiceOut = VB.voiceChain(ac, voice, plan.edit.voice_fx);
       voiceOut.connect(dest);
       var an = ac.createAnalyser(); an.fftSize = 512; voiceOut.connect(an);
       var sfxOut = ac.createGain(); sfxOut.gain.value = 1; sfxOut.connect(dest);
@@ -3156,6 +3195,756 @@
   };
 })();
 
+/* ===== _i_studio.html ===== */
+(function () {
+  'use strict';
+  var VB = window.VB, clamp = VB.clamp, rr = VB.rr;
+
+  /* ================================================================== LOOKS */
+  function luma(c) { return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
+  function sat(c, k) { var l = luma(c); return [l + (c[0] - l) * k, l + (c[1] - l) * k, l + (c[2] - l) * k]; }
+  function curve(x, k) {  // S-curve around the middle (k > 0 more contrast, k < 0 less)
+    x = clamp(x, 0, 1);
+    var s = x < 0.5 ? 0.5 * Math.pow(2 * x, 1 + Math.abs(k)) : 1 - 0.5 * Math.pow(2 * (1 - x), 1 + Math.abs(k));
+    return k >= 0 ? s : x + (x - s);
+  }
+  function curves(c, k) { return [curve(c[0], k), curve(c[1], k), curve(c[2], k)]; }
+  function gain(c, r, g, b) { return [c[0] * r, c[1] * g, c[2] * b]; }
+  function lift(c, a, top) { top = top == null ? 1 : top; return c.map(function (v) { return a + v * (top - a); }); }
+  function split(c, sh, hi, amt) {  // tint the shadows and the highlights
+    var l = luma(c), ws = (1 - l) * (1 - l), wh = l * l;
+    return [0, 1, 2].map(function (i) { return c[i] + ((sh[i] - 0.5) * ws + (hi[i] - 0.5) * wh) * amt; });
+  }
+  function power(c, p) { return c.map(function (v) { return Math.pow(clamp(v, 0, 1), p); }); }
+  function mono(c, r, g, b) { var l = c[0] * r + c[1] * g + c[2] * b; return [l, l, l]; }
+  /* Each look is a colour function (a 3D LUT is made from it) plus a CSS-filter stand-in for browsers without WebGL. */
+  VB.LOOKS = [
+    { key: 'none', name: 'Natural', emoji: '⚪', blurb: 'No colour look', css: '' },
+    { key: 'studio', name: 'Clean studio', emoji: '🎙️', blurb: 'Gentle contrast, skin-friendly', css: 'contrast(1.06) saturate(1.05)',
+      f: function (c) { return sat(curves(gain(c, 1.02, 1, 0.98), 0.22), 1.05); } },
+    { key: 'news', name: 'Newsroom', emoji: '📺', blurb: 'Punchy, clean whites', css: 'contrast(1.12) saturate(1.15)',
+      f: function (c) { return sat(curves(gain(c, 1, 1, 1.02), 0.3), 1.15); } },
+    { key: 'warm', name: 'Warm & friendly', emoji: '☀️', blurb: 'Soft and welcoming', css: 'sepia(.12) saturate(1.1) contrast(1.03)',
+      f: function (c) { return sat(curves(gain(c, 1.06, 1.01, 0.9), 0.15), 1.06); } },
+    { key: 'cool', name: 'Cool tech', emoji: '🧊', blurb: 'Crisp blue shadows', css: 'hue-rotate(-8deg) saturate(.95) contrast(1.08)',
+      f: function (c) { return sat(curves(split(gain(c, 0.97, 1, 1.05), [0.35, 0.5, 0.75], [0.52, 0.52, 0.5], 0.5), 0.22), 0.95); } },
+    { key: 'teal', name: 'Teal & orange', emoji: '🎬', blurb: 'The cinema look', css: 'contrast(1.12) saturate(1.15) sepia(.08)',
+      f: function (c) { return sat(curves(split(c, [0.2, 0.55, 0.62], [0.78, 0.55, 0.32], 0.55), 0.3), 1.08); } },
+    { key: 'film', name: 'Film fade', emoji: '🎞️', blurb: 'Lifted blacks, soft colour', css: 'contrast(.9) saturate(.82) sepia(.1) brightness(1.03)',
+      f: function (c) { return lift(sat(curves(gain(c, 1.03, 1, 0.95), 0.2), 0.82), 0.07, 0.95); } },
+    { key: 'golden', name: 'Golden hour', emoji: '🌇', blurb: 'Sunset warmth', css: 'sepia(.25) saturate(1.2) contrast(1.04)',
+      f: function (c) { return sat(lift(split(gain(c, 1.08, 1, 0.82), [0.55, 0.45, 0.4], [0.75, 0.62, 0.35], 0.35), 0.02), 1.1); } },
+    { key: 'airy', name: 'Bright & airy', emoji: '🌤️', blurb: 'Light, pastel, low contrast', css: 'brightness(1.1) contrast(.88) saturate(.9)',
+      f: function (c) { return lift(sat(curves(power(c, 0.85), -0.15), 0.9), 0.04); } },
+    { key: 'moody', name: 'Moody', emoji: '🌧️', blurb: 'Deep shadows, quiet colour', css: 'brightness(.92) contrast(1.18) saturate(.75)',
+      f: function (c) { return sat(split(curves(power(c, 1.12), 0.4), [0.38, 0.5, 0.55], [0.5, 0.5, 0.5], 0.4), 0.75); } },
+    { key: 'neon', name: 'Night neon', emoji: '🌃', blurb: 'Magenta and cyan', css: 'contrast(1.15) saturate(1.35) hue-rotate(10deg)',
+      f: function (c) { return sat(curves(split(c, [0.62, 0.3, 0.68], [0.35, 0.72, 0.78], 0.5), 0.3), 1.25); } },
+    { key: 'green', name: 'Green film', emoji: '🌿', blurb: 'Fresh greens, cool shadows', css: 'hue-rotate(6deg) saturate(.92) contrast(1.06)',
+      f: function (c) { var d = sat(curves(split(gain(c, 0.98, 1.03, 1), [0.42, 0.52, 0.56], [0.52, 0.53, 0.46], 0.4), 0.25), 0.9); return lift(d, 0.03); } },
+    { key: 'vintage', name: 'Vintage 70s', emoji: '📻', blurb: 'Faded yellow-green', css: 'sepia(.35) contrast(.9) saturate(.8)',
+      f: function (c) { return lift(sat(split(gain(c, 1.05, 1.02, 0.84), [0.45, 0.55, 0.45], [0.6, 0.56, 0.4], 0.35), 0.75), 0.08, 0.92); } },
+    { key: 'bleach', name: 'Bleach bypass', emoji: '⚡', blurb: 'Gritty, silvery, hard', css: 'saturate(.45) contrast(1.3)',
+      f: function (c) { var l = luma(c); return curves([VB.lerp(c[0], l, 0.55), VB.lerp(c[1], l, 0.55), VB.lerp(c[2], l, 0.55)], 0.55); } },
+    { key: 'bw', name: 'Classic black & white', emoji: '◐', blurb: 'Timeless', css: 'grayscale(1) contrast(1.08)',
+      f: function (c) { return curves(mono(c, 0.3, 0.59, 0.11), 0.2); } },
+    { key: 'noir', name: 'Noir', emoji: '🕵️', blurb: 'High-contrast black & white', css: 'grayscale(1) contrast(1.45) brightness(.92)',
+      f: function (c) { return curves(power(mono(c, 0.36, 0.56, 0.08), 1.1), 0.75); } }
+  ];
+  VB.lookInfo = function (k) { return VB.LOOKS.filter(function (l) { return l.key === k; })[0] || null; };
+  /* Neutral settings: nothing changes. */
+  VB.LOOK_NEUTRAL = function () {
+    return { on: false, target: 'cam', lut: 'none', amt: 1, cube: '', exposure: 0, contrast: 0, highlights: 0, shadows: 0, temp: 0, tint: 0,
+      sat: 0, vib: 0, fade: 0, sharpen: 0, smooth: 0, grain: 0, vignette: 0,
+      light: { on: false, x: 0.5, y: 0.38, size: 0.35, power: 0.4, warm: 0.3 }, crop: { z: 1, x: 0.5, y: 0.5, mirror: false } };
+  };
+  VB.fullLook = function (l) {
+    var d = VB.LOOK_NEUTRAL(), out = Object.assign({}, d, l || {});
+    out.light = Object.assign({}, d.light, (l && l.light) || {});
+    out.crop = Object.assign({}, d.crop, (l && l.crop) || {});
+    return out;
+  };
+  VB.SLIDERS = {  // key: [label, min, max, step]
+    exposure: ['Exposure', -2, 2, 0.05], contrast: ['Contrast', -1, 1, 0.02], highlights: ['Highlights', -1, 1, 0.02], shadows: ['Shadows', -1, 1, 0.02],
+    fade: ['Fade', 0, 1, 0.02], temp: ['Warmth', -1, 1, 0.02], tint: ['Tint', -1, 1, 0.02], sat: ['Saturation', -1, 1, 0.02], vib: ['Vibrance', -1, 1, 0.02],
+    sharpen: ['Sharpen', 0, 1, 0.02], smooth: ['Smooth skin', 0, 1, 0.02], grain: ['Film grain', 0, 1, 0.02], vignette: ['Vignette', 0, 1, 0.02]
+  };
+  /* Is anything switched on? (Then the frame goes through the grader.) */
+  VB.lookActive = function (l) {
+    if (!l || !l.on) return false;
+    if (l.lut && l.lut !== 'none' && l.amt > 0) return true;
+    if (Object.keys(VB.SLIDERS).some(function (k) { return Math.abs(l[k] || 0) > 0.004; })) return true;
+    if (l.light && l.light.on && l.light.power > 0) return true;
+    return !!(l.crop && (l.crop.z > 1.001 || l.crop.mirror));
+  };
+
+  /* ---- LUT tables: strips of N slices (width N*N, height N), red across, green down, blue = slice. */
+  var LUT_N = 32, lutData = {};
+  function lutFor(key) {
+    if (lutData[key]) return lutData[key];
+    var look = VB.lookInfo(key); if (!look || !look.f) return null;
+    var N = LUT_N, data = new Uint8Array(N * N * N * 4);
+    for (var b = 0; b < N; b++) for (var g = 0; g < N; g++) for (var r = 0; r < N; r++) {
+      var c = look.f([r / (N - 1), g / (N - 1), b / (N - 1)]), i = (g * N * N + b * N + r) * 4;
+      data[i] = clamp(Math.round(c[0] * 255), 0, 255); data[i + 1] = clamp(Math.round(c[1] * 255), 0, 255); data[i + 2] = clamp(Math.round(c[2] * 255), 0, 255); data[i + 3] = 255;
+    }
+    lutData[key] = { n: N, data: data };
+    return lutData[key];
+  }
+  /* A .cube file (Resolve, Premiere, phones): -> {n, data} or throws a friendly error. */
+  VB.parseCube = function (text) {
+    var n = 0, vals = [], dmin = [0, 0, 0], dmax = [1, 1, 1];
+    String(text || '').split(/\r?\n/).forEach(function (line) {
+      line = line.trim(); if (!line || line[0] === '#') return;
+      var p = line.split(/\s+/);
+      if (p[0] === 'LUT_3D_SIZE') { n = parseInt(p[1], 10); return; }
+      if (p[0] === 'LUT_1D_SIZE') throw new Error('This is a 1D LUT. Use a 3D .cube file.');
+      if (p[0] === 'DOMAIN_MIN') { dmin = p.slice(1, 4).map(Number); return; }
+      if (p[0] === 'DOMAIN_MAX') { dmax = p.slice(1, 4).map(Number); return; }
+      if (/^[-+0-9.eE]/.test(p[0]) && p.length >= 3) vals.push(+p[0], +p[1], +p[2]);
+    });
+    if (!n || n < 2) throw new Error('This file has no LUT_3D_SIZE line, so it isn\'t a 3D .cube LUT.');
+    if (n > 64) throw new Error('This LUT is ' + n + ' points per side. Use one with 64 or fewer (most are 33).');
+    if (vals.length < n * n * n * 3) throw new Error('This .cube file is cut short (' + Math.floor(vals.length / 3) + ' of ' + (n * n * n) + ' colours).');
+    var data = new Uint8Array(n * n * n * 4);
+    for (var i = 0; i < n * n * n; i++) {
+      var r = i % n, g = Math.floor(i / n) % n, b = Math.floor(i / (n * n)), o = (g * n * n + b * n + r) * 4;
+      for (var k = 0; k < 3; k++) data[o + k] = clamp(Math.round((vals[i * 3 + k] - dmin[k]) / ((dmax[k] - dmin[k]) || 1) * 255), 0, 255);
+      data[o + 3] = 255;
+    }
+    return { n: n, data: data };
+  };
+  VB.useCube = function (name, parsed) { lutData['cube:' + name] = parsed; };
+  VB.hasCube = function (name) { return !!lutData['cube:' + name]; };
+  /* Load a saved .cube from this browser (the editor calls it when an edit uses one). */
+  VB.loadCube = function (name) {
+    if (!name || lutData['cube:' + name]) return Promise.resolve(!!name);
+    return VB.vault.meta.get('lut:' + name).then(function (txt) { if (!txt) return false; VB.useCube(name, VB.parseCube(txt)); return true; })['catch'](function () { return false; });
+  };
+  VB.saveCube = function (file) {
+    return file.text().then(function (txt) {
+      var parsed = VB.parseCube(txt), name = file.name.replace(/\.cube$/i, '').replace(/[^\w .()-]+/g, '').slice(0, 60) || 'My LUT';
+      VB.useCube(name, parsed);
+      return VB.vault.meta.set('lut:' + name, txt).then(function () { return name; });
+    });
+  };
+
+  /* ---- the WebGL grader */
+  var VS = 'attribute vec2 p; varying vec2 v_uv; void main(){ v_uv = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }';
+  var FS = [
+    '#ifdef GL_FRAGMENT_PRECISION_HIGH', 'precision highp float;', '#else', 'precision mediump float;', '#endif',
+    'uniform sampler2D u_img; uniform sampler2D u_lut; uniform float u_N; uniform float u_amt;',
+    'uniform vec2 u_px; uniform vec2 u_size;',
+    'uniform float u_exp, u_con, u_hi, u_sh, u_temp, u_tint, u_sat, u_vib, u_fade, u_sharp, u_smooth, u_vig, u_grain, u_time;',
+    'uniform vec4 u_light; uniform float u_lwarm; uniform vec4 u_crop;',
+    'varying vec2 v_uv;',
+    'float lum(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }',
+    'vec3 tx(vec2 q){ return texture2D(u_img, clamp(q, u_px * 0.5, 1.0 - u_px * 0.5)).rgb; }',
+    'vec3 lut(vec3 c){',
+    '  float n = u_N, b = c.b * (n - 1.0), b0 = floor(b), b1 = min(b0 + 1.0, n - 1.0);',
+    '  float x = (c.r * (n - 1.0) + 0.5) / (n * n), y = (c.g * (n - 1.0) + 0.5) / n;',
+    '  return mix(texture2D(u_lut, vec2(x + b0 / n, y)).rgb, texture2D(u_lut, vec2(x + b1 / n, y)).rgb, b - b0);',
+    '}',
+    'float hash(vec2 q){ return fract(sin(dot(q, vec2(12.9898, 78.233))) * 43758.5453); }',
+    'void main(){',
+    '  vec2 uv = v_uv;',
+    '  if (u_crop.w > 0.5) uv.x = 1.0 - uv.x;',
+    '  uv = vec2(u_crop.y, u_crop.z) + (uv - 0.5) / u_crop.x;',
+    '  vec3 c = tx(uv);',
+    '  float sc = u_size.y / 720.0;',
+    '  if (u_smooth > 0.0) {',
+    '    vec3 acc = c; float ws = 1.0; float r = (1.2 + u_smooth * 2.6) * sc;',
+    '    for (int i = 0; i < 12; i++) {',
+    '      float a = float(i) * 0.5236; float rad = mod(float(i), 2.0) < 0.5 ? r : r * 2.1;',
+    '      vec3 s = tx(uv + vec2(cos(a), sin(a)) * rad * u_px); vec3 d = s - c; float w = exp(-dot(d, d) * 55.0);',
+    '      acc += s * w; ws += w;',
+    '    }',
+    '    c = mix(c, acc / ws, u_smooth * 0.9);',
+    '  }',
+    '  if (u_sharp > 0.0) {',
+    '    vec2 o = u_px * max(1.0, sc);',
+    '    vec3 bl = (tx(uv + vec2(o.x, 0.0)) + tx(uv - vec2(o.x, 0.0)) + tx(uv + vec2(0.0, o.y)) + tx(uv - vec2(0.0, o.y))) * 0.25;',
+    '    c += (c - bl) * u_sharp * 2.2;',
+    '  }',
+    '  c = max(c, 0.0);',
+    '  vec3 lin = pow(c, vec3(2.2)) * exp2(u_exp);',
+    '  lin *= vec3(1.0 + 0.22 * u_temp + 0.05 * u_tint, 1.0 + 0.03 * u_temp - 0.12 * u_tint, 1.0 - 0.3 * u_temp + 0.05 * u_tint);',
+    '  c = pow(max(lin, 0.0), vec3(1.0 / 2.2));',
+    '  float l = lum(c);',
+    '  float shw = 1.0 - smoothstep(0.0, 0.55, l), hiw = smoothstep(0.45, 1.0, l);',
+    '  float nl = l + u_sh * 0.34 * shw * mix(l, 1.0 - l, step(0.0, u_sh)) * 1.6 + u_hi * 0.32 * hiw * mix(l, 1.0 - l, step(0.0, u_hi));',
+    '  c *= nl / max(l, 0.0001);',
+    '  c = clamp(c, 0.0, 1.0);',
+    '  if (u_con >= 0.0) c = mix(c, c * c * (3.0 - 2.0 * c), u_con); else c = mix(c, vec3(0.46), -u_con * 0.45);',
+    '  l = lum(c);',
+    '  float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));',
+    '  float s = (1.0 + u_sat) * (1.0 + u_vib * (1.0 - clamp((mx - mn) * 2.5, 0.0, 1.0)) * 0.9);',
+    '  c = vec3(l) + (c - vec3(l)) * s;',
+    '  if (u_light.w > 0.0) {',
+    '    vec2 q = (vec2(v_uv.x, 1.0 - v_uv.y) - u_light.xy) * vec2(u_size.x / u_size.y, 1.0);',
+    '    float k = exp(-dot(q, q) / (u_light.z * u_light.z));',
+    '    c *= 1.0 + u_light.w * 0.65 * k;',
+    '    c += vec3(0.05, 0.018, -0.035) * u_lwarm * k * u_light.w;',
+    '  }',
+    '  c = clamp(c, 0.0, 1.0);',
+    '  if (u_amt > 0.0) c = mix(c, lut(c), u_amt);',
+    '  c = c * (1.0 - u_fade * 0.17) + u_fade * 0.075;',
+    '  if (u_vig > 0.0) { float d = length((v_uv - 0.5) * 1.414); c *= 1.0 - u_vig * 0.7 * smoothstep(0.32, 1.05, d); }',
+    '  if (u_grain > 0.0) { float g = hash(floor(v_uv * u_size / max(1.0, sc)) + fract(u_time * 7.13) * 91.7) - 0.5; c += g * u_grain * 0.11 * (1.0 - abs(lum(c) - 0.5)); }',
+    '  gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);',
+    '}'
+  ].join('\n');
+  var UNI = ['u_img', 'u_lut', 'u_N', 'u_amt', 'u_px', 'u_size', 'u_exp', 'u_con', 'u_hi', 'u_sh', 'u_temp', 'u_tint', 'u_sat', 'u_vib', 'u_fade', 'u_sharp', 'u_smooth',
+    'u_vig', 'u_grain', 'u_time', 'u_light', 'u_lwarm', 'u_crop'];
+  var glBroken = false;
+  function Grader() {
+    var cv = document.createElement('canvas'), gl = null, U = {}, tex = null, lutTex = null, lutKey = null, self = {};
+    try { gl = !glBroken && (cv.getContext('webgl', { alpha: false, antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: true }) || cv.getContext('experimental-webgl')); } catch (e) { gl = null; }
+    if (gl) {
+      try {
+        var sh = function (type, src) { var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+        var pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(pr);
+        if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
+        gl.useProgram(pr);
+        var buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+        var loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+        UNI.forEach(function (n) { U[n] = gl.getUniformLocation(pr, n); });
+        var mk = function () { var t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t); [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T].forEach(function (p) { gl.texParameteri(gl.TEXTURE_2D, p, gl.CLAMP_TO_EDGE); });
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); return t; };
+        tex = mk(); lutTex = mk();
+        gl.uniform1i(U.u_img, 0); gl.uniform1i(U.u_lut, 1);
+        cv.addEventListener('webglcontextlost', function (e) { e.preventDefault(); gl = null; });
+      } catch (err) { console.warn('colour grading falls back to plain canvas:', err.message || err); gl = null; }
+    }
+    var fb = null;  // the fallback canvas
+    self.gl = function () { return !!gl; };
+    self.apply = function (img, w, h, L, time) {
+      var k = Math.min(1, 1920 / Math.max(w, h)), ow = Math.max(2, Math.round(w * k)), oh = Math.max(2, Math.round(h * k));
+      if (gl) {
+        try {
+          if (cv.width !== ow || cv.height !== oh) { cv.width = ow; cv.height = oh; }
+          gl.viewport(0, 0, ow, oh);
+          gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+          var key = L.lut === 'cube' ? 'cube:' + L.cube : L.lut, lt = key && key !== 'none' ? lutFor(key) : null;
+          gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, lutTex);
+          if (lt && lutKey !== key) { gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, lt.n * lt.n, lt.n, 0, gl.RGBA, gl.UNSIGNED_BYTE, lt.data); lutKey = key; }
+          gl.uniform1f(U.u_N, lt ? lt.n : 2); gl.uniform1f(U.u_amt, lt ? clamp(L.amt, 0, 1) : 0);
+          gl.uniform2f(U.u_px, 1 / w, 1 / h); gl.uniform2f(U.u_size, ow, oh);
+          gl.uniform1f(U.u_exp, L.exposure || 0); gl.uniform1f(U.u_con, L.contrast || 0); gl.uniform1f(U.u_hi, L.highlights || 0); gl.uniform1f(U.u_sh, L.shadows || 0);
+          gl.uniform1f(U.u_temp, L.temp || 0); gl.uniform1f(U.u_tint, L.tint || 0); gl.uniform1f(U.u_sat, L.sat || 0); gl.uniform1f(U.u_vib, L.vib || 0);
+          gl.uniform1f(U.u_fade, L.fade || 0); gl.uniform1f(U.u_sharp, L.sharpen || 0); gl.uniform1f(U.u_smooth, L.smooth || 0); gl.uniform1f(U.u_vig, L.vignette || 0);
+          gl.uniform1f(U.u_grain, L.grain || 0); gl.uniform1f(U.u_time, time || 0);
+          var li = L.light || {}, cr = L.crop || {};
+          gl.uniform4f(U.u_light, li.x == null ? 0.5 : li.x, li.y == null ? 0.38 : li.y, Math.max(0.05, li.size || 0.35), li.on ? li.power || 0 : 0); gl.uniform1f(U.u_lwarm, li.warm || 0);
+          var z = Math.max(1, cr.z || 1), half = 0.5 / z;
+          gl.uniform4f(U.u_crop, z, clamp(cr.x == null ? 0.5 : cr.x, half, 1 - half), 1 - clamp(cr.y == null ? 0.5 : cr.y, half, 1 - half), cr.mirror ? 1 : 0);
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+          return cv;
+        } catch (e) { console.warn('colour grading frame skipped:', e.message || e); return null; }
+      }
+      // Fallback: CSS filters on a 2D canvas (no LUT, key light or skin smoothing).
+      if (!fb) fb = document.createElement('canvas');
+      if (fb.width !== ow || fb.height !== oh) { fb.width = ow; fb.height = oh; }
+      var g = fb.getContext('2d'), info = VB.lookInfo(L.lut), cr2 = L.crop || {}, z2 = Math.max(1, cr2.z || 1);
+      var f = 'brightness(' + Math.pow(2, (L.exposure || 0) * 0.6).toFixed(3) + ') contrast(' + (1 + (L.contrast || 0) * 0.5).toFixed(3) + ') saturate(' + Math.max(0, 1 + (L.sat || 0) + (L.vib || 0) * 0.4).toFixed(3) + ')';
+      if ((L.temp || 0) > 0) f += ' sepia(' + (L.temp * 0.3).toFixed(3) + ')';
+      if ((L.temp || 0) < 0) f += ' hue-rotate(' + Math.round(L.temp * 12) + 'deg)';
+      if (info && info.css && L.amt > 0.3) f += ' ' + info.css;
+      g.save(); g.filter = f;
+      var sw = w / z2, sh2 = h / z2, sx = clamp((cr2.x == null ? 0.5 : cr2.x) * w - sw / 2, 0, w - sw), sy = clamp((cr2.y == null ? 0.5 : cr2.y) * h - sh2 / 2, 0, h - sh2);
+      if (cr2.mirror) { g.translate(ow, 0); g.scale(-1, 1); }
+      try { g.drawImage(img, sx, sy, sw, sh2, 0, 0, ow, oh); } catch (e) { g.restore(); return null; }
+      g.restore();
+      if (L.vignette > 0) { var rg = g.createRadialGradient(ow / 2, oh / 2, Math.min(ow, oh) * 0.3, ow / 2, oh / 2, Math.max(ow, oh) * 0.72); rg.addColorStop(0, 'rgba(0,0,0,0)'); rg.addColorStop(1, 'rgba(0,0,0,' + (L.vignette * 0.65).toFixed(2) + ')'); g.fillStyle = rg; g.fillRect(0, 0, ow, oh); }
+      return fb;
+    };
+    return self;
+  }
+  var graders = {};
+  VB.grader = function (role) { if (!graders[role]) graders[role] = Grader(); return graders[role]; };
+  VB.webglLooks = function () { return VB.grader('main').gl(); };
+  /* src {img, w, h} -> graded {img, w, h}, or src unchanged when the look is off or the frame isn't ready. */
+  VB.gradeSource = function (role, src, look, time) {
+    if (!src || !src.img || !VB.lookActive(look)) return src;
+    var img = src.img;
+    if (img.tagName === 'VIDEO' && (img.readyState < 2 || !img.videoWidth)) return src;
+    var out = VB.grader(role).apply(img, src.w, src.h, look, time || 0);
+    return out ? { img: out, w: out.width, h: out.height, graded: true } : src;
+  };
+  /* A graded copy of a canvas or image (thumbnails, stills). */
+  VB.gradeCanvas = function (canvas, look) {
+    if (!canvas || !VB.lookActive(look)) return canvas;
+    var g = VB.gradeSource('still', { img: canvas, w: canvas.width, h: canvas.height }, look, 0);
+    if (!g.graded) return canvas;
+    var c = document.createElement('canvas'); c.width = g.w; c.height = g.h; c.getContext('2d').drawImage(g.img, 0, 0);
+    return c;
+  };
+
+  /* ---- measuring the light (for "Fix my lighting" and the recorder's light meter) */
+  var probe = null;
+  function stats(img, w, h) {
+    if (!probe) probe = document.createElement('canvas');
+    var pw = 96, ph = Math.max(8, Math.round(96 * h / Math.max(1, w)));
+    probe.width = pw; probe.height = ph;
+    var g = probe.getContext('2d', { willReadFrequently: true });
+    try { g.drawImage(img, 0, 0, pw, ph); } catch (e) { return null; }
+    var d = g.getImageData(0, 0, pw, ph).data, hist = new Array(64).fill(0), n = 0, sr = 0, sg = 0, sb = 0, mid = 0, centre = 0, cn = 0, edge = 0, en = 0;
+    for (var y = 0; y < ph; y++) for (var x = 0; x < pw; x++) {
+      var i = (y * pw + x) * 4, r = d[i] / 255, gg = d[i + 1] / 255, b = d[i + 2] / 255, l = 0.2126 * r + 0.7152 * gg + 0.0722 * b;
+      hist[Math.min(63, Math.floor(l * 64))]++; n++;
+      if (l > 0.15 && l < 0.85) { sr += r; sg += gg; sb += b; mid++; }
+      var cx = x / pw - 0.5, cy = y / ph - 0.42;
+      if (Math.abs(cx) < 0.18 && Math.abs(cy) < 0.22) { centre += l; cn++; } else if (Math.abs(cx) > 0.32 || y / ph < 0.12) { edge += l; en++; }
+    }
+    function pct(q) { var want = q * n, acc = 0; for (var k = 0; k < 64; k++) { acc += hist[k]; if (acc >= want) return (k + 0.5) / 64; } return 1; }
+    return { p02: pct(0.02), p10: pct(0.1), p50: pct(0.5), p90: pct(0.9), p98: pct(0.98), clip: hist[63] / n, crush: hist[0] / n,
+      rgb: mid ? [sr / mid, sg / mid, sb / mid] : [0.5, 0.5, 0.5], centre: cn ? centre / cn : 0.5, edge: en ? edge / en : 0.5 };
+  }
+  VB.lightStats = function (img) { var w = img.videoWidth || img.width, h = img.videoHeight || img.height; return w && h ? stats(img, w, h) : null; };
+  /* Settings that fix this picture's light and colour (levels, grey-world white balance, backlight). */
+  VB.lookAuto = function (img) {
+    var s = VB.lightStats(img); if (!s) return null;
+    var out = {}, faceL = s.centre;
+    // Exposure: bring the face (centre) towards a bright mid tone.
+    var target = 0.5, ev = Math.log(Math.pow(target, 2.2) / Math.pow(clamp(faceL, 0.04, 0.95), 2.2)) / Math.LN2;
+    out.exposure = +clamp(ev * 0.75, -1.2, 1.4).toFixed(2);
+    out.shadows = +clamp((0.12 - s.p10) * 3.2 + (s.edge - faceL > 0.12 ? 0.25 : 0), 0, 0.7).toFixed(2);
+    out.highlights = +clamp(-(s.clip * 8 + Math.max(0, s.p98 - 0.97) * 6), -0.7, 0).toFixed(2);
+    var spread = s.p90 - s.p10;
+    out.contrast = +clamp((0.55 - spread) * 0.6, -0.2, 0.3).toFixed(2);
+    var c = s.rgb, avg = (c[0] + c[1] + c[2]) / 3;
+    out.temp = +clamp((c[2] - c[0]) / avg * 1.6, -0.7, 0.7).toFixed(2);
+    out.tint = +clamp((c[1] - (c[0] + c[2]) / 2) / avg * 2.2, -0.5, 0.5).toFixed(2);
+    out.vib = 0.15;
+    if (s.edge - faceL > 0.16) out.light = { on: true, power: +clamp((s.edge - faceL) * 1.6, 0.2, 0.7).toFixed(2) };
+    return out;
+  };
+  /* The recorder's light meter: what's wrong with the light on the face, in plain words. */
+  VB.lightCheck = function (img) {
+    var s = VB.lightStats(img); if (!s) return null;
+    var c = s.rgb, avg = (c[0] + c[1] + c[2]) / 3, warm = (c[0] - c[2]) / (avg || 1), out = { face: s.centre, stats: s, tips: [] };
+    if (s.centre < 0.22) { out.level = 'bad'; out.msg = 'Too dark'; out.tips.push('Put a lamp or a window in front of you, a bit above your eyes.'); }
+    else if (s.centre > 0.82 || s.clip > 0.08) { out.level = 'warn'; out.msg = 'Too bright'; out.tips.push('Move the light further away, or turn it down: your face is losing detail.'); }
+    else if (s.edge - s.centre > 0.18) { out.level = 'warn'; out.msg = 'Backlit'; out.tips.push('Something behind you is brighter than your face. Turn around so the window is in front of you, or close the curtain.'); }
+    else { out.level = 'ok'; out.msg = 'Good light'; }
+    if (warm > 0.28) out.tips.push('The light is quite orange. Use a daylight bulb, or fix it later with Warmth in the Look tab.');
+    if (warm < -0.18) out.tips.push('The light is bluish (screen or daylight). Add a warm lamp, or fix it later with Warmth.');
+    if (s.p90 - s.p10 < 0.18 && out.level === 'ok') out.tips.push('The picture looks flat. A light from one side (45°) gives your face shape.');
+    return out;
+  };
+  /* One-click fixes for common rooms. Each changes a look (a copy) and returns it. */
+  VB.QUICK_FIXES = [
+    { key: 'dark', name: 'Dark room', emoji: '🌑', fix: function (l) { l.exposure = 0.7; l.shadows = 0.45; l.smooth = Math.max(l.smooth, 0.25); l.contrast = 0.1; l.vib = 0.15; return l; } },
+    { key: 'window', name: 'Window behind me', emoji: '🪟', fix: function (l) { l.shadows = 0.6; l.highlights = -0.55; l.exposure = 0.3; l.light = Object.assign({}, l.light, { on: true, power: 0.5 }); return l; } },
+    { key: 'orange', name: 'Lamp too orange', emoji: '💡', fix: function (l) { l.temp = -0.45; l.tint = 0.05; return l; } },
+    { key: 'blue', name: 'Too blue', emoji: '🖥️', fix: function (l) { l.temp = 0.4; l.tint = -0.05; return l; } },
+    { key: 'webcam', name: 'Webcam boost', emoji: '📷', fix: function (l) { l.sharpen = 0.35; l.smooth = 0.3; l.contrast = 0.12; l.vib = 0.25; l.fade = 0; return l; } },
+    { key: 'soft', name: 'Soft & flattering', emoji: '✨', fix: function (l) { l.smooth = 0.55; l.highlights = -0.2; l.light = Object.assign({}, l.light, { on: true, power: 0.3, warm: 0.4 }); l.vignette = 0.25; return l; } }
+  ];
+
+  /* ================================================================== FRAMES */
+  VB.FONTS = {
+    condensed: ['Condensed', '"Roboto Condensed", Roboto, Arial'], anton: ['Anton', 'Anton, Impact, sans-serif'], bebas: ['Bebas', '"Bebas Neue", Anton, Impact'],
+    roboto: ['Roboto', 'Roboto, Arial, sans-serif'], serif: ['Serif', '"Instrument Serif", Georgia, serif'], mono: ['Mono', '"JetBrains Mono", Consolas, monospace']
+  };
+  function fam(f) { return (VB.FONTS[f.font] || VB.FONTS.condensed)[1]; }
+  function bold(f) { return f.font === 'anton' || f.font === 'bebas' || f.font === 'serif' ? '400 ' : '700 '; }
+  function inkOn(hex) {
+    var n = parseInt(String(hex || '#000').slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 165 ? '#111' : '#fff';
+  }
+  function fitFont(g, text, weight, family, px, maxW, minPx) {
+    var s = px; g.font = weight + s + 'px ' + family;
+    while (s > (minPx || 8) && g.measureText(text).width > maxW) { s = Math.floor(s * 0.92); g.font = weight + s + 'px ' + family; }
+    return s;
+  }
+  function clipText(g, text, maxW) {
+    text = String(text || ''); if (g.measureText(text).width <= maxW) return text;
+    while (text.length > 1 && g.measureText(text + '…').width > maxW) text = text.slice(0, -1);
+    return text + '…';
+  }
+  function clockText(f, ctx) {
+    if (f.style === 'rec') { var t = ctx.o || 0, fr = Math.floor((t % 1) * 30); return [Math.floor(t / 3600), Math.floor(t / 60) % 60, Math.floor(t % 60), fr].map(function (v) { return String(v).padStart(2, '0'); }).join(':'); }
+    var d = ctx.now || new Date(); return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  }
+  function U(W, H, f) { return Math.min(W, H) * 0.01 * (f.size || 1); }
+  function vert(W, H) { return H > W * 1.2; }
+  function shine(g, x, y, w, h, t, period) {  // a light sweep across a box every few seconds
+    var k = ((t % period) / period) * 3 - 1; if (k < 0 || k > 1) return;
+    g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip();
+    var sx = x - w * 0.3 + k * w * 1.6, gr = g.createLinearGradient(sx, y, sx + w * 0.25, y + h);
+    gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.5, 'rgba(255,255,255,.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(x, y, w, h); g.restore();
+  }
+  function bottomSafe(W, H, ctx) {
+    var m = Math.min(W, H), y = H - m * (vert(W, H) ? 0.16 : 0.06) - (ctx.progress ? m * 0.012 : 0);
+    return ctx.ticker ? Math.min(y, ctx.ticker - m * 0.018) : y;  // lower thirds sit above a ticker
+  }
+  /* Where a bottom ticker starts at time o (lower thirds and captions stay above it). */
+  function tickerTop(W, H, frames, o, plan, L, ctx) {
+    var top = 0;
+    frames.forEach(function (f) {
+      if (f.style !== 'ticker' || f.pos[0] === 't' || !span(f, o, plan, L)) return;
+      var y = S.ticker.box(W, H, f, ctx).y; top = top ? Math.min(top, y) : y;
+    });
+    return top;
+  }
+
+  /* Each style: name, emoji, which fields it uses, its default spot, box(W,H,f,ctx) = the area it covers, draw(g,W,H,f,t,ctx). */
+  var S = {};
+  S.desk = { name: 'News desk', emoji: '📺', blurb: 'Two-line lower third with a tag', fields: ['tag', 'title', 'sub', 'logo', 'clock'], pos: ['bl', 'br', 'tl', 'tr'],
+    box: function (W, H, f, ctx) { var u = U(W, H, f), bw = vert(W, H) ? W * 0.9 : W * 0.6, bh = u * 13.5, x = f.pos[1] === 'r' ? W - W * 0.05 - bw : (vert(W, H) ? W * 0.05 : W * 0.05);
+      var y = f.pos[0] === 't' ? Math.min(W, H) * 0.06 : bottomSafe(W, H, ctx) - bh; return { x: x, y: y, w: bw, h: bh }; },
+    draw: function (g, W, H, f, t, ctx) {
+      var B = this.box(W, H, f, ctx), u = U(W, H, f), th = u * 8, sh = u * 5.5, x = B.x, y = B.y;
+      g.font = '400 ' + Math.round(u * 4.6) + 'px Anton, Impact'; var tag = (f.tag || '').toUpperCase(), tw = tag ? g.measureText(tag).width + u * 4 : 0;
+      g.fillStyle = 'rgba(0,0,0,.25)'; g.fillRect(x + u * 0.6, y + u * 0.6, B.w, th + sh);
+      g.fillStyle = '#fff'; g.fillRect(x, y, B.w, th);
+      if (tag) { g.fillStyle = f.color; g.fillRect(x, y, tw, th); g.fillStyle = inkOn(f.color); g.textBaseline = 'middle'; g.textAlign = 'center'; g.fillText(tag, x + tw / 2, y + th / 2 + u * 0.2); shine(g, x, y, tw, th, t, 6); }
+      var px = fitFont(g, f.title || '', bold(f), fam(f), Math.round(u * 5.2), B.w - tw - u * 5); g.fillStyle = '#141414'; g.textAlign = 'left'; g.textBaseline = 'middle';
+      g.fillText(clipText(g, f.title || '', B.w - tw - u * 5), x + tw + u * 2.4, y + th / 2 + px * 0.05);
+      g.fillStyle = VB.mix(f.color, -0.55); g.fillRect(x, y + th, B.w, sh);
+      var right = f.logo || (f.clock ? clockText(f, ctx) : '');
+      g.font = '700 ' + Math.round(u * 3.1) + 'px ' + (f.font === 'mono' ? fam(f) : 'Roboto, Arial'); var rw = right ? g.measureText(right).width + u * 4 : 0;
+      if (right) { g.fillStyle = f.accent; g.fillRect(x + B.w - rw, y + th, rw, sh); g.fillStyle = inkOn(f.accent); g.textAlign = 'center'; g.fillText(right, x + B.w - rw / 2, y + th + sh / 2); }
+      g.font = '500 ' + Math.round(u * 3.2) + 'px Roboto, Arial'; g.fillStyle = '#fff'; g.textAlign = 'left';
+      g.fillText(clipText(g, (f.sub || '').split('\n')[0], B.w - rw - u * 5), x + u * 2.4, y + th + sh / 2);
+    } };
+  S.ticker = { name: 'News ticker', emoji: '📰', blurb: 'Scrolling headlines along the bottom', fields: ['tag', 'ticker', 'clock', 'speed'], pos: ['bl', 'tl'],
+    box: function (W, H, f, ctx) {
+      var h = U(W, H, f) * 6.6, m = Math.min(W, H), bottom = (vert(W, H) ? H - m * 0.16 : H) - (ctx.progress ? m * 0.012 : 0);
+      return { x: 0, y: f.pos[0] === 't' ? 0 : bottom - h, w: W, h: h };
+    },
+    draw: function (g, W, H, f, t, ctx) {
+      var B = this.box(W, H, f, ctx), u = U(W, H, f), y = B.y, h = B.h;
+      g.fillStyle = 'rgba(12,12,14,.92)'; g.fillRect(0, y, W, h);
+      g.fillStyle = f.accent; g.fillRect(0, f.pos[0] === 't' ? y + h - u * 0.5 : y, W, u * 0.5);
+      var clock = f.clock ? clockText(f, ctx) : '';
+      g.font = '700 ' + Math.round(u * 3.2) + 'px Roboto, Arial'; var cw = clock ? g.measureText(clock).width + u * 4 : 0;
+      g.font = '400 ' + Math.round(u * 4) + 'px Anton, Impact'; var tag = (f.tag || '').toUpperCase(), tw = tag ? g.measureText(tag).width + u * 5 : 0;
+      var items = String(f.ticker || '').split(/\s*[|\n]\s*/).filter(Boolean), sep = '   •   ', line = items.join(sep) + sep;
+      g.save(); g.beginPath(); g.rect(tw, y, W - tw - cw, h); g.clip();
+      g.font = '500 ' + Math.round(u * 3.4) + 'px ' + (f.font === 'condensed' ? 'Roboto, Arial' : fam(f)); g.fillStyle = '#fff'; g.textBaseline = 'middle'; g.textAlign = 'left';
+      var lw = Math.max(1, g.measureText(line).width), off = (t * u * 14 * (f.speed || 1)) % lw;
+      for (var xx = tw + u * 2 - off; xx < W; xx += lw) {
+        var cx = xx;
+        items.forEach(function (it) { g.fillStyle = '#fff'; g.fillText(it, cx, y + h / 2); cx += g.measureText(it).width; g.fillStyle = f.accent; g.fillText(sep, cx, y + h / 2); cx += g.measureText(sep).width; });
+      }
+      g.restore();
+      if (tag) { g.fillStyle = f.color; g.beginPath(); g.moveTo(0, y); g.lineTo(tw, y); g.lineTo(tw + h * 0.35, y + h); g.lineTo(0, y + h); g.fill();
+        g.font = '400 ' + Math.round(u * 4) + 'px Anton, Impact'; g.fillStyle = inkOn(f.color); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(tag, tw / 2, y + h / 2 + u * 0.15); }
+      if (clock) { g.fillStyle = '#000'; g.fillRect(W - cw, y, cw, h); g.font = '700 ' + Math.round(u * 3.2) + 'px Roboto, Arial'; g.fillStyle = '#fff'; g.textAlign = 'center'; g.fillText(clock, W - cw / 2, y + h / 2); }
+    } };
+  S.breaking = { name: 'Breaking banner', emoji: '🚨', blurb: 'Big tag over a headline', fields: ['tag', 'title', 'sub'], pos: ['bl', 'tl'],
+    box: function (W, H, f, ctx) { var u = U(W, H, f), h = u * (f.sub ? 22 : 17), w = W * (vert(W, H) ? 0.92 : 0.84); return { x: (W - w) / 2, y: f.pos[0] === 't' ? Math.min(W, H) * 0.07 : bottomSafe(W, H, ctx) - h, w: w, h: h }; },
+    draw: function (g, W, H, f, t, ctx) {
+      var B = this.box(W, H, f, ctx), u = U(W, H, f), x = B.x, y = B.y, tagH = u * 6.5, hh = u * 10;
+      var tag = (f.tag || 'BREAKING NEWS').toUpperCase();
+      g.font = '400 ' + Math.round(u * 4.8) + 'px Anton, Impact'; var tw = g.measureText(tag).width + u * 6;
+      g.fillStyle = f.color; g.fillRect(x, y, tw, tagH);
+      g.save(); g.beginPath(); g.rect(x, y, tw, tagH); g.clip(); g.globalAlpha = 0.16; g.fillStyle = '#fff';
+      for (var i = -2; i < 14; i++) { var sx = x + i * u * 4 + (t * u * 8) % (u * 4); g.beginPath(); g.moveTo(sx, y + tagH); g.lineTo(sx + u * 2, y + tagH); g.lineTo(sx + u * 4.5, y); g.lineTo(sx + u * 2.5, y); g.fill(); }
+      g.restore();
+      g.fillStyle = inkOn(f.color); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(tag, x + tw / 2, y + tagH / 2 + u * 0.2);
+      g.fillStyle = '#fff'; g.fillRect(x, y + tagH, B.w, hh);
+      g.fillStyle = f.color; g.fillRect(x, y + tagH, u * 1, hh);
+      var px = fitFont(g, (f.title || '').toUpperCase(), bold(f), fam(f), Math.round(u * 6.6), B.w - u * 6); g.fillStyle = '#111'; g.textAlign = 'left';
+      g.fillText(clipText(g, (f.title || '').toUpperCase(), B.w - u * 6), x + u * 3.2, y + tagH + hh / 2 + px * 0.04);
+      if (f.sub) { g.fillStyle = 'rgba(10,10,12,.9)'; g.fillRect(x, y + tagH + hh, B.w, B.h - tagH - hh); g.font = '500 ' + Math.round(u * 3.2) + 'px Roboto, Arial'; g.fillStyle = '#fff';
+        g.fillText(clipText(g, f.sub.split('\n')[0], B.w - u * 6), x + u * 3.2, y + tagH + hh + (B.h - tagH - hh) / 2); }
+      shine(g, x, y + tagH, B.w, hh, t + 1.5, 7);
+    } };
+  S.bug = { name: 'Channel bug', emoji: '🏷️', blurb: 'Your logo in a corner', fields: ['logo', 'title', 'clock'], pos: ['tr', 'tl', 'br', 'bl'],
+    box: function (W, H, f, ctx) {
+      var u = U(W, H, f), g = VB._measure; g.font = bold(f) + Math.round(u * 5) + 'px ' + fam(f); var w1 = g.measureText(f.logo || '').width;
+      g.font = '600 ' + Math.round(u * 2.2) + 'px Roboto, Arial'; var w2 = g.measureText((f.title || '').toUpperCase()).width;
+      var w = Math.max(w1, w2, u * 8) + u * 5, h = u * (f.title || f.clock ? 10.5 : 8), m = Math.min(W, H) * 0.04;
+      return { x: f.pos[1] === 'r' ? W - m - w : m, y: f.pos[0] === 't' ? m : bottomSafe(W, H, ctx) - h, w: w, h: h };
+    },
+    draw: function (g, W, H, f, t, ctx) {
+      var B = this.box(W, H, f, ctx), u = U(W, H, f);
+      g.save(); g.globalAlpha *= 0.9; rr(g, B.x, B.y, B.w, B.h, u * 1.2); g.fillStyle = f.color; g.fill(); g.restore();
+      g.fillStyle = f.accent; rr(g, B.x, B.y + B.h - u * 0.7, B.w, u * 0.7, [0, 0, u * 1.2, u * 1.2]); g.fill();
+      var ink = inkOn(f.color); g.fillStyle = ink; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.font = bold(f) + Math.round(u * 5) + 'px ' + fam(f); g.fillText(f.logo || '', B.x + B.w / 2, B.y + u * (f.title || f.clock ? 4.2 : 3.8));
+      var small = [(f.title || '').toUpperCase(), f.clock ? clockText(f, ctx) : ''].filter(Boolean).join('  ·  ');
+      if (small) { g.font = '600 ' + Math.round(u * 2.2) + 'px Roboto, Arial'; g.globalAlpha *= 0.85; g.fillText(clipText(g, small, B.w - u * 2), B.x + B.w / 2, B.y + u * 8.1); }
+    } };
+  S.live = { name: 'Live badge', emoji: '🔴', blurb: 'LIVE, a place and the time', fields: ['tag', 'sub', 'clock'], pos: ['tl', 'tr', 'bl', 'br'],
+    box: function (W, H, f, ctx) { var u = U(W, H, f), g = VB._measure; g.font = '400 ' + Math.round(u * 3.8) + 'px Anton, Impact'; var w1 = g.measureText((f.tag || 'LIVE').toUpperCase()).width + u * 7.5;
+      g.font = '600 ' + Math.round(u * 3) + 'px Roboto, Arial'; var txt = [f.sub, f.clock ? clockText(f, ctx) : ''].filter(Boolean).join('  ·  '), w2 = txt ? g.measureText(txt).width + u * 5 : 0;
+      var w = w1 + w2, h = u * 6.5, m = Math.min(W, H) * 0.04; return { x: f.pos[1] === 'r' ? W - m - w : m, y: f.pos[0] === 't' ? m : bottomSafe(W, H, ctx) - h, w: w, h: h, w1: w1, txt: txt }; },
+    draw: function (g, W, H, f, t, ctx) {
+      var B = this.box(W, H, f, ctx), u = U(W, H, f);
+      rr(g, B.x, B.y, B.w1, B.h, [u, B.txt ? 0 : u, B.txt ? 0 : u, u]); g.fillStyle = f.color; g.fill();
+      g.save(); g.globalAlpha *= Math.sin(t * Math.PI * 2 * 0.9) > -0.2 ? 1 : 0.35; g.beginPath(); g.arc(B.x + u * 3, B.y + B.h / 2, u * 1.2, 0, 7); g.fillStyle = inkOn(f.color); g.fill(); g.restore();
+      g.font = '400 ' + Math.round(u * 3.8) + 'px Anton, Impact'; g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillStyle = inkOn(f.color); g.fillText((f.tag || 'LIVE').toUpperCase(), B.x + u * 5.2, B.y + B.h / 2 + u * 0.15);
+      if (B.txt) { rr(g, B.x + B.w1, B.y, B.w - B.w1, B.h, [0, u, u, 0]); g.fillStyle = 'rgba(12,12,14,.78)'; g.fill(); g.font = '600 ' + Math.round(u * 3) + 'px Roboto, Arial'; g.fillStyle = '#fff'; g.fillText(B.txt, B.x + B.w1 + u * 2.5, B.y + B.h / 2); }
+    } };
+  S.studio = { name: 'Studio frame', emoji: '🖼️', blurb: 'A border around the whole picture', fields: ['title', 'logo', 'clock'], pos: ['tl'],
+    box: function (W, H) { return { x: 0, y: 0, w: W, h: H, full: true }; },
+    draw: function (g, W, H, f, t, ctx) {
+      var u = U(W, H, f), m = Math.min(W, H), ins = m * 0.025, bw = Math.max(2, u * 0.5);
+      g.strokeStyle = f.color; g.lineWidth = bw; g.strokeRect(ins, ins, W - ins * 2, H - ins * 2);
+      g.strokeStyle = f.accent; g.lineWidth = bw * 2.6; var L = m * 0.07;
+      [[ins, ins, 1, 1], [W - ins, ins, -1, 1], [ins, H - ins, 1, -1], [W - ins, H - ins, -1, -1]].forEach(function (c) { g.beginPath(); g.moveTo(c[0], c[1] + c[3] * L); g.lineTo(c[0], c[1]); g.lineTo(c[0] + c[2] * L, c[1]); g.stroke(); });
+      g.textBaseline = 'middle';
+      if (f.title) { g.font = bold(f) + Math.round(u * 3.4) + 'px ' + fam(f); var tw = g.measureText(f.title.toUpperCase()).width + u * 4; g.fillStyle = f.color; g.fillRect(ins + L * 0.4, ins - u * 2.5, tw, u * 5); g.fillStyle = inkOn(f.color); g.textAlign = 'center'; g.fillText(f.title.toUpperCase(), ins + L * 0.4 + tw / 2, ins); }
+      var br = [f.logo, f.clock ? clockText(f, ctx) : ''].filter(Boolean).join('  ·  ');
+      if (br) { g.font = '700 ' + Math.round(u * 3) + 'px ' + (f.font === 'serif' || f.font === 'mono' ? fam(f) : 'Roboto, Arial'); var lw = g.measureText(br).width + u * 4; g.fillStyle = f.accent; g.fillRect(W - ins - L * 0.4 - lw, H - ins - u * 2.3, lw, u * 4.6); g.fillStyle = inkOn(f.accent); g.textAlign = 'center'; g.fillText(br, W - ins - L * 0.4 - lw / 2, H - ins); }
+    } };
+  S.panel = { name: 'Side panel', emoji: '📋', blurb: 'A column with a heading and points', fields: ['title', 'sub', 'logo'], pos: ['br', 'bl'], subLines: true,
+    box: function (W, H, f) { if (vert(W, H)) { var h = H * 0.3; return { x: 0, y: H - h, w: W, h: h }; } var w = W * 0.3; return { x: f.pos[1] === 'l' ? 0 : W - w, y: 0, w: w, h: H }; },
+    draw: function (g, W, H, f, t) {
+      var B = this.box(W, H, f), u = U(W, H, f), gr = g.createLinearGradient(B.x, B.y, B.x + B.w, B.y + B.h);
+      gr.addColorStop(0, VB.mix(f.color, -0.25)); gr.addColorStop(1, VB.mix(f.color, -0.7)); g.fillStyle = gr; g.globalAlpha *= 0.94; g.fillRect(B.x, B.y, B.w, B.h); g.globalAlpha = Math.min(1, g.globalAlpha / 0.94);
+      g.fillStyle = f.accent; if (vert(W, H)) g.fillRect(B.x, B.y, B.w, u * 0.7); else g.fillRect(f.pos[1] === 'l' ? B.x + B.w - u * 0.7 : B.x, B.y, u * 0.7, B.h);
+      var pad = u * 4, x = B.x + pad, y = B.y + pad * (vert(W, H) ? 1 : 2.2), mw = B.w - pad * 2;
+      g.textAlign = 'left'; g.textBaseline = 'top'; g.fillStyle = '#fff';
+      g.font = bold(f) + Math.round(u * 5.4) + 'px ' + fam(f);
+      VB.wrap(g, f.title || '', mw).slice(0, 3).forEach(function (l) { g.fillText(l, x, y); y += u * 6.4; });
+      y += u * 1.5; g.fillStyle = f.accent; g.fillRect(x, y, u * 8, u * 0.6); y += u * 3.2;
+      g.font = '400 ' + Math.round(u * 3.3) + 'px Roboto, Arial';
+      String(f.sub || '').split(/\n|\s*\|\s*/).filter(Boolean).slice(0, 7).forEach(function (line, i) {
+        var a = clamp((t - 0.35 - i * 0.25) / 0.35, 0, 1); if (a <= 0) return;
+        g.save(); g.globalAlpha *= a; g.translate((1 - VB.ease(a)) * u * 3, 0);
+        g.fillStyle = f.accent; g.beginPath(); g.arc(x + u * 0.9, y + u * 1.9, u * 0.8, 0, 7); g.fill();
+        g.fillStyle = 'rgba(255,255,255,.92)';
+        VB.wrap(g, line, mw - u * 3.5).slice(0, 2).forEach(function (l, k) { g.fillText(l, x + u * 3.2, y + k * u * 4.2); });
+        g.restore(); y += u * (VB.wrap(g, line, mw - u * 3.5).length > 1 ? 9.4 : 5.4);
+      });
+      if (f.logo && !vert(W, H)) { g.font = bold(f) + Math.round(u * 3.6) + 'px ' + fam(f); g.fillStyle = 'rgba(255,255,255,.75)'; g.textBaseline = 'alphabetic'; g.fillText(f.logo, x, B.y + B.h - pad * 1.5); }
+    } };
+  S.glass = { name: 'Glass lower third', emoji: '🪟', blurb: 'Modern frosted name tag', fields: ['title', 'sub'], pos: ['bl', 'br', 'tl', 'tr'],
+    box: function (W, H, f, ctx) { var u = U(W, H, f), g = VB._measure; g.font = bold(f) + Math.round(u * 5) + 'px ' + fam(f); var w1 = g.measureText(f.title || '').width;
+      g.font = '400 ' + Math.round(u * 3.1) + 'px Roboto, Arial'; var w2 = g.measureText((f.sub || '').split('\n')[0]).width;
+      var w = Math.min(W * 0.86, Math.max(w1, w2) + u * 9), h = u * (f.sub ? 13 : 9), m = Math.min(W, H) * 0.05;
+      return { x: f.pos[1] === 'r' ? W - m - w : m, y: f.pos[0] === 't' ? m : bottomSafe(W, H, ctx) - h, w: w, h: h }; },
+    draw: function (g, W, H, f, t, ctx) {
+      var B = this.box(W, H, f, ctx), u = U(W, H, f);
+      g.save(); g.shadowColor = 'rgba(0,0,0,.35)'; g.shadowBlur = u * 3; rr(g, B.x, B.y, B.w, B.h, u * 1.6); g.fillStyle = 'rgba(16,18,24,.62)'; g.fill(); g.restore();
+      rr(g, B.x, B.y, B.w, B.h, u * 1.6); g.strokeStyle = 'rgba(255,255,255,.22)'; g.lineWidth = Math.max(1, u * 0.2); g.stroke();
+      var gr = g.createLinearGradient(B.x, B.y, B.x, B.y + B.h); gr.addColorStop(0, f.color); gr.addColorStop(1, f.accent);
+      rr(g, B.x + u * 2, B.y + u * 2, u * 0.9, B.h - u * 4, u * 0.45); g.fillStyle = gr; g.fill();
+      g.textAlign = 'left'; g.textBaseline = 'middle'; g.fillStyle = '#fff';
+      g.font = bold(f) + Math.round(u * 5) + 'px ' + fam(f); g.fillText(clipText(g, f.title || '', B.w - u * 7), B.x + u * 5, B.y + u * (f.sub ? 4.8 : 4.5));
+      if (f.sub) { g.font = '400 ' + Math.round(u * 3.1) + 'px Roboto, Arial'; g.fillStyle = 'rgba(255,255,255,.78)'; g.fillText(clipText(g, f.sub.split('\n')[0], B.w - u * 7), B.x + u * 5, B.y + u * 9.4); }
+    } };
+  S.sport = { name: 'Score bug', emoji: '🏁', blurb: 'Angled blocks, sports style', fields: ['tag', 'title', 'sub'], pos: ['bl', 'tl', 'br', 'tr'],
+    box: function (W, H, f, ctx) { var u = U(W, H, f), g = VB._measure, h = u * 7.5;
+      g.font = '400 ' + Math.round(u * 4.2) + 'px Anton, Impact'; var a = f.tag ? g.measureText(f.tag.toUpperCase()).width + u * 7 : 0;
+      g.font = bold(f) + Math.round(u * 4.4) + 'px ' + fam(f); var b = g.measureText((f.title || '').toUpperCase()).width + u * 8;
+      g.font = '700 ' + Math.round(u * 3.2) + 'px Roboto, Arial'; var c = f.sub ? g.measureText(f.sub.split('\n')[0].toUpperCase()).width + u * 7 : 0;
+      var w = Math.min(W * 0.92, a + b + c), m = Math.min(W, H) * 0.05;
+      return { x: f.pos[1] === 'r' ? W - m - w : m, y: f.pos[0] === 't' ? m : bottomSafe(W, H, ctx) - h, w: w, h: h, parts: [a, b, c] }; },
+    draw: function (g, W, H, f, t, ctx) {
+      var B = this.box(W, H, f, ctx), u = U(W, H, f), sk = B.h * 0.32, x = B.x;
+      function block(w, fill, txt, font, ink) {
+        if (!w) return; g.beginPath(); g.moveTo(x + sk, B.y); g.lineTo(x + w + sk, B.y); g.lineTo(x + w, B.y + B.h); g.lineTo(x, B.y + B.h); g.closePath(); g.fillStyle = fill; g.fill();
+        g.font = font; g.fillStyle = ink; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(clipText(g, txt, w - u * 3), x + w / 2 + sk / 2, B.y + B.h / 2 + u * 0.2); x += w;
+      }
+      g.save(); g.shadowColor = 'rgba(0,0,0,.4)'; g.shadowBlur = u * 2;
+      block(B.parts[0], f.color, (f.tag || '').toUpperCase(), '400 ' + Math.round(u * 4.2) + 'px Anton, Impact', inkOn(f.color)); g.shadowColor = 'transparent';
+      block(B.parts[1], '#141418', (f.title || '').toUpperCase(), bold(f) + Math.round(u * 4.4) + 'px ' + fam(f), '#fff');
+      block(B.parts[2], f.accent, (f.sub || '').split('\n')[0].toUpperCase(), '700 ' + Math.round(u * 3.2) + 'px Roboto, Arial', inkOn(f.accent));
+      g.restore();
+    } };
+  S.minimal = { name: 'Minimal line', emoji: '➖', blurb: 'An elegant line and two words', fields: ['title', 'sub'], pos: ['bl', 'br', 'tl', 'tr'],
+    box: function (W, H, f, ctx) { var u = U(W, H, f), w = W * (vert(W, H) ? 0.8 : 0.42), h = u * 12, m = Math.min(W, H) * 0.06;
+      return { x: f.pos[1] === 'r' ? W - m - w : m, y: f.pos[0] === 't' ? m : bottomSafe(W, H, ctx) - h, w: w, h: h }; },
+    draw: function (g, W, H, f, t, ctx) {
+      var B = this.box(W, H, f, ctx), u = U(W, H, f), right = f.pos[1] === 'r', grow = VB.ease(clamp(t / 0.8, 0, 1));
+      // A soft dark backing, so white words read on any picture.
+      var sx = right ? B.x - u * 6 : B.x - u * 4, sw = B.w + u * 10, sc = g.createLinearGradient(right ? sx + sw : sx, 0, right ? sx : sx + sw, 0);
+      sc.addColorStop(0, 'rgba(0,0,0,.55)'); sc.addColorStop(0.65, 'rgba(0,0,0,.28)'); sc.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = sc; g.fillRect(sx, B.y - u * 1.5, sw, B.h + u * 2.5);
+      g.textAlign = right ? 'right' : 'left'; g.textBaseline = 'alphabetic'; var ax = right ? B.x + B.w : B.x;
+      g.save(); g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = u * 1.5;
+      g.font = bold(f) + Math.round(u * 5.6) + 'px ' + fam(f); g.fillStyle = '#fff'; g.fillText(clipText(g, f.title || '', B.w), ax, B.y + u * 5.6);
+      g.fillStyle = f.accent; var lw = B.w * 0.6 * grow; g.fillRect(right ? ax - lw : ax, B.y + u * 7.3, lw, Math.max(2, u * 0.4));
+      if (f.sub) { g.font = '500 ' + Math.round(u * 2.6) + 'px Roboto, Arial'; g.fillStyle = 'rgba(255,255,255,.92)'; var st = f.sub.split('\n')[0].toUpperCase().split('').join(String.fromCharCode(8202)); g.fillText(clipText(g, st, B.w), ax, B.y + u * 11); }
+      g.restore();
+    } };
+  S.headline = { name: 'Top headline', emoji: '🗞️', blurb: 'A strip across the top', fields: ['tag', 'title', 'logo'], pos: ['tl'],
+    box: function (W, H, f) { var u = U(W, H, f); return { x: 0, y: 0, w: W, h: u * 8 }; },
+    draw: function (g, W, H, f, t) {
+      var B = this.box(W, H, f), u = U(W, H, f), h = B.h;
+      g.fillStyle = 'rgba(255,255,255,.96)'; g.fillRect(0, 0, W, h); g.fillStyle = f.accent; g.fillRect(0, h, W, u * 0.6);
+      g.font = '400 ' + Math.round(u * 4.2) + 'px Anton, Impact'; var tag = (f.tag || '').toUpperCase(), tw = tag ? g.measureText(tag).width + u * 6 : 0;
+      if (tag) { g.fillStyle = f.color; g.fillRect(0, 0, tw, h); g.fillStyle = inkOn(f.color); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(tag, tw / 2, h / 2 + u * 0.2); shine(g, 0, 0, tw, h, t, 6); }
+      g.font = bold(f) + Math.round(u * 3.4) + 'px ' + (f.font === 'condensed' ? 'Roboto, Arial' : fam(f)); var lw = f.logo ? g.measureText(f.logo).width + u * 5 : 0;
+      if (f.logo) { g.fillStyle = f.color; g.fillRect(W - lw, 0, lw, h); g.fillStyle = inkOn(f.color); g.textAlign = 'center'; g.fillText(f.logo, W - lw / 2, h / 2); }
+      fitFont(g, f.title || '', bold(f), fam(f), Math.round(u * 4.6), W - tw - lw - u * 6); g.fillStyle = '#111'; g.textAlign = 'left'; g.textBaseline = 'middle';
+      g.fillText(clipText(g, f.title || '', W - tw - lw - u * 6), tw + u * 3, h / 2 + u * 0.1);
+    } };
+  S.quote = { name: 'Pull quote', emoji: '💬', blurb: 'A big quote and who said it', fields: ['title', 'sub'], pos: ['bl', 'br', 'tl', 'tr'],
+    box: function (W, H, f, ctx) { var u = U(W, H, f), g = VB._measure, w = W * (vert(W, H) ? 0.86 : 0.46); g.font = '400 ' + Math.round(u * 5.4) + 'px "Instrument Serif", Georgia, serif';
+      var lines = Math.min(4, VB.wrap(g, '“' + (f.title || '') + '”', w - u * 8).length), h = u * (8 + lines * 6.4 + (f.sub ? 5 : 0)), m = Math.min(W, H) * 0.05;
+      return { x: f.pos[1] === 'r' ? W - m - w : m, y: f.pos[0] === 't' ? m : bottomSafe(W, H, ctx) - h, w: w, h: h }; },
+    draw: function (g, W, H, f, t, ctx) {
+      var B = this.box(W, H, f, ctx), u = U(W, H, f);
+      g.save(); g.shadowColor = 'rgba(0,0,0,.35)'; g.shadowBlur = u * 3; rr(g, B.x, B.y, B.w, B.h, u * 1.2); g.fillStyle = 'rgba(255,255,255,.96)'; g.fill(); g.restore();
+      g.fillStyle = f.color; rr(g, B.x, B.y, u * 1.1, B.h, [u * 1.2, 0, 0, u * 1.2]); g.fill();
+      g.font = '400 ' + Math.round(u * 16) + 'px "Instrument Serif", Georgia, serif'; g.fillStyle = f.accent; g.globalAlpha *= 0.3; g.textBaseline = 'top'; g.textAlign = 'left'; g.fillText('“', B.x + u * 3, B.y - u * 1.5); g.globalAlpha = Math.min(1, g.globalAlpha / 0.3);
+      g.font = (f.font === 'serif' ? 'italic 400 ' : bold(f)) + Math.round(u * 5.4) + 'px ' + (f.font === 'condensed' ? '"Instrument Serif", Georgia, serif' : fam(f)); g.fillStyle = '#16181d';
+      var y = B.y + u * 4.5;
+      VB.wrap(g, f.title || '', B.w - u * 8).slice(0, 4).forEach(function (l) { g.fillText(l, B.x + u * 4.5, y); y += u * 6.4; });
+      if (f.sub) { g.font = '700 ' + Math.round(u * 2.8) + 'px Roboto, Arial'; g.fillStyle = VB.mix(f.color, -0.2); g.fillText('— ' + f.sub.split('\n')[0], B.x + u * 4.5, y + u * 1.2); }
+    } };
+  S.rec = { name: 'Camera viewfinder', emoji: '🎥', blurb: 'REC, timecode and corner marks', fields: ['title', 'clock'], pos: ['tl'],
+    box: function (W, H) { return { x: 0, y: 0, w: W, h: H, full: true }; },
+    draw: function (g, W, H, f, t, ctx) {
+      var u = U(W, H, f), m = Math.min(W, H), ins = m * 0.05, L = m * 0.06;
+      g.save(); g.shadowColor = 'rgba(0,0,0,.6)'; g.shadowBlur = u; g.strokeStyle = 'rgba(255,255,255,.92)'; g.lineWidth = Math.max(2, u * 0.45);
+      [[ins, ins, 1, 1], [W - ins, ins, -1, 1], [ins, H - ins, 1, -1], [W - ins, H - ins, -1, -1]].forEach(function (c) { g.beginPath(); g.moveTo(c[0], c[1] + c[3] * L); g.lineTo(c[0], c[1]); g.lineTo(c[0] + c[2] * L, c[1]); g.stroke(); });
+      g.globalAlpha *= 0.5; g.lineWidth = Math.max(1, u * 0.25); g.beginPath(); g.moveTo(W / 2 - u * 2, H / 2); g.lineTo(W / 2 + u * 2, H / 2); g.moveTo(W / 2, H / 2 - u * 2); g.lineTo(W / 2, H / 2 + u * 2); g.stroke(); g.globalAlpha = Math.min(1, g.globalAlpha * 2);
+      g.shadowColor = 'transparent';
+      function pill(x, y, w, h) { g.save(); g.globalAlpha *= 0.55; rr(g, x, y, w, h, h * 0.25); g.fillStyle = '#000'; g.fill(); g.restore(); }
+      g.font = '700 ' + Math.round(u * 3.2) + 'px "JetBrains Mono", Consolas, monospace'; g.textBaseline = 'middle'; g.textAlign = 'left';
+      var ry = ins + L * 0.62, rx = ins + L * 0.5, recW = g.measureText('REC').width + u * 5.4;
+      pill(rx - u * 1.8, ry - u * 2.6, recW, u * 5.2);
+      if (Math.floor(t * 1.4) % 2 === 0) { g.beginPath(); g.arc(rx, ry, u * 1.2, 0, 7); g.fillStyle = f.color; g.fill(); }
+      g.fillStyle = '#fff'; g.fillText('REC', rx + u * 2.2, ry);
+      if (f.clock !== false) { var tc = clockText(f, ctx), tcw = g.measureText(tc).width; pill(W - ins - L * 0.3 - tcw - u * 1.8, ry - u * 2.6, tcw + u * 3.6, u * 5.2); g.textAlign = 'right'; g.fillStyle = '#fff'; g.fillText(tc, W - ins - L * 0.3, ry); }
+      var bx = W - ins - L * 0.3 - u * 7, by = ry + u * 3.6; pill(bx - u, by - u * 0.8, u * 8.6, u * 4.2);
+      g.strokeStyle = '#fff'; g.lineWidth = Math.max(1, u * 0.3); g.strokeRect(bx, by, u * 6, u * 2.6); g.fillStyle = '#fff'; g.fillRect(bx + u * 6, by + u * 0.8, u * 0.6, u * 1); g.fillRect(bx + u * 0.5, by + u * 0.5, u * 4.2, u * 1.6);
+      if (f.title) { g.textAlign = 'left'; g.font = '700 ' + Math.round(u * 2.8) + 'px "JetBrains Mono", Consolas, monospace'; var tw2 = g.measureText(f.title.toUpperCase()).width; pill(rx - u * 1.8, H - ins - L * 0.55 - u * 2.4, tw2 + u * 3.6, u * 4.8); g.fillStyle = '#fff'; g.fillText(f.title.toUpperCase(), rx, H - ins - L * 0.55); }
+      g.restore();
+    } };
+  VB.FRAME_STYLES = ['desk', 'ticker', 'breaking', 'bug', 'live', 'studio', 'panel', 'glass', 'sport', 'minimal', 'headline', 'quote', 'rec'].map(function (k) { return Object.assign({ key: k }, S[k]); });
+  VB.frameStyle = function (k) { return S[k] || S.desk; };
+  VB.FRAME_MAX = 12;  // keep in step with Clean.MAX_FRAMES
+  VB._measure = document.createElement('canvas').getContext('2d');
+
+  VB.FRAME_TRANS = [['none', 'Cut'], ['fade', 'Fade'], ['slide_l', 'Slide from left'], ['slide_r', 'Slide from right'], ['slide_u', 'Slide up'], ['slide_d', 'Slide down'],
+    ['wipe', 'Wipe'], ['split', 'Open from the middle'], ['zoom', 'Zoom'], ['pop', 'Pop'], ['blur', 'Blur'], ['flip', 'Flip'], ['drop', 'Drop & bounce']];
+  function backOut(k) { var c = 1.70158; k = k - 1; return 1 + (c + 1) * k * k * k + c * k * k; }
+  function bounce(k) { var n = 7.5625, d = 2.75; if (k < 1 / d) return n * k * k; if (k < 2 / d) { k -= 1.5 / d; return n * k * k + 0.75; } if (k < 2.5 / d) { k -= 2.25 / d; return n * k * k + 0.9375; } k -= 2.625 / d; return n * k * k + 0.984375; }
+  /* Apply transition kind at progress p (0 hidden .. 1 fully in) around box B. Returns false when nothing should be drawn. */
+  function transit(g, W, H, kind, p, B, out) {
+    if (p >= 1 || kind === 'none') return true;
+    if (p <= 0) return false;
+    var e = VB.ease(p), cx = B.x + B.w / 2, cy = B.y + B.h / 2, dist;
+    switch (kind) {
+      case 'fade': g.globalAlpha *= e; break;
+      case 'slide_l': dist = B.full ? W * 0.3 : B.x + B.w + W * 0.02; g.translate(-(1 - e) * dist, 0); g.globalAlpha *= Math.min(1, e * 2.5); break;
+      case 'slide_r': dist = B.full ? W * 0.3 : W - B.x + W * 0.02; g.translate((1 - e) * dist, 0); g.globalAlpha *= Math.min(1, e * 2.5); break;
+      case 'slide_u': dist = B.full ? H * 0.2 : H - B.y + H * 0.02; g.translate(0, (1 - e) * dist); g.globalAlpha *= Math.min(1, e * 2.5); break;
+      case 'slide_d': dist = B.full ? H * 0.2 : B.y + B.h + H * 0.02; g.translate(0, -(1 - e) * dist); g.globalAlpha *= Math.min(1, e * 2.5); break;
+      case 'wipe': g.beginPath(); if (out) g.rect(B.x + B.w * (1 - e), 0, B.w * e + 1, H); else g.rect(B.x - 1, 0, B.w * e + 1, H); g.clip(); break;
+      case 'split': g.beginPath(); g.rect(cx - B.w * e / 2, 0, B.w * e, H); g.clip(); break;
+      case 'zoom': var z = 0.55 + 0.45 * e; g.translate(cx, cy); g.scale(z, z); g.translate(-cx, -cy); g.globalAlpha *= e; break;
+      case 'pop': var z2 = Math.max(0.01, backOut(p)); g.translate(cx, cy); g.scale(z2, z2); g.translate(-cx, -cy); g.globalAlpha *= Math.min(1, p * 3); break;
+      case 'blur': g.filter = 'blur(' + ((1 - e) * Math.min(W, H) * 0.03).toFixed(1) + 'px)'; g.globalAlpha *= e; break;
+      case 'flip': g.translate(cx, cy); g.scale(1, Math.max(0.01, e)); g.translate(-cx, -cy); g.globalAlpha *= Math.min(1, e * 2); break;
+      case 'drop': var k = out ? e : bounce(p), dy = (1 - k) * (B.full ? H * 0.3 : B.y + B.h + H * 0.02); g.translate(0, out ? (1 - e) * (H - B.y + H * 0.02) : -dy); g.globalAlpha *= Math.min(1, p * 3); break;
+    }
+    return true;
+  }
+  /* Is frame f on at output time o? -> {t (seconds since it started), s, e} or null */
+  function span(f, o, plan, L) {
+    var s = f.all ? 0 : f.s, e = f.all ? plan.outDur : Math.min(f.e, plan.outDur);
+    if (o < s || o > e) return null;
+    if (!f.cards && L && L.s.type === 'card') return null;
+    return { t: o - s, s: s, e: e };
+  }
+  /* The lowest top edge of the frames along the bottom at o (captions sit above it). */
+  VB.frameFloor = function (W, H, plan, o, L) {
+    var floor = H, list = plan.edit.frames || [], ctx = { o: o, progress: plan.edit.progress };
+    ctx.ticker = tickerTop(W, H, list, o, plan, L, ctx);
+    list.forEach(function (f) {
+      if (!span(f, o, plan, L)) return;
+      var st = VB.frameStyle(f.style), B = st.box(W, H, f, ctx);
+      if (!B.full && B.y > H * 0.45 && B.w > W * 0.3) floor = Math.min(floor, B.y);
+    });
+    return floor;
+  };
+  /* Draw every frame that is on at output time o (bottom of the list = drawn last = on top). */
+  VB.drawFrames = function (g, W, H, plan, o, L, opt) {
+    var list = plan.edit.frames || []; if (!list.length) return;
+    var ctx = { o: o, progress: plan.edit.progress, now: opt && opt.now };
+    ctx.ticker = tickerTop(W, H, list, o, plan, L, ctx);
+    list.forEach(function (f) {
+      var sp = span(f, o, plan, L); if (!sp) return;
+      var st = VB.frameStyle(f.style), B = st.box(W, H, f, ctx), tin = f.din || 0.6, tout = f.dout || 0.5;
+      g.save();
+      var ok = true;
+      if (sp.t < tin && f.tin !== 'none') ok = transit(g, W, H, f.tin, sp.t / tin, B, false);
+      else if (sp.e - o < tout && f.tout !== 'none') ok = transit(g, W, H, f.tout, (sp.e - o) / tout, B, true);
+      if (ok) { try { st.draw(g, W, H, f, sp.t, ctx); } catch (e) { console.warn('frame draw', f.style, e); } }
+      g.restore();
+    });
+  };
+  /* A new frame layer with sensible words for this person / app. */
+  VB.newFrame = function (style, who) {
+    who = who || {};
+    var p = who.product || {}, name = who.name || 'Your name', app = p.name || 'My app', brand = p.color && p.color !== '#cc181e' ? p.color : '#cc181e';
+    var base = { id: VB.uid('f').slice(0, 20), style: style, tag: '', title: '', sub: '', ticker: '', logo: '', color: brand, accent: '#ffc400', font: 'condensed', pos: (VB.frameStyle(style).pos || ['bl'])[0],
+      size: 1, clock: false, speed: 1, all: true, s: 0, e: 8, cards: false, tin: 'slide_l', tout: 'fade', din: 0.6, dout: 0.5 };
+    var d = {
+      desk: { tag: 'LIVE', title: name, sub: who.handle ? who.handle : 'Maker of ' + app, logo: '', clock: true, all: false, s: 1, e: 9 },
+      ticker: { tag: 'LATEST', ticker: app + ' | ' + (p.tagline || 'New features this week') + ' | ' + (p.cta || 'Try it today') + (p.url ? ' | ' + p.url.replace(/^https?:\/\//, '') : ''), clock: true, tin: 'slide_u', tout: 'slide_d' },
+      breaking: { tag: 'BREAKING NEWS', title: app + ' is out today', sub: p.tagline || '', all: false, s: 0.5, e: 7, tin: 'wipe', tout: 'wipe' },
+      bug: { logo: p.emoji ? p.emoji + ' ' + app : app, title: who.handle || '', tin: 'fade', tout: 'fade', accent: '#ffffff' },
+      live: { tag: 'LIVE', sub: 'Montréal', clock: true, color: '#e62117', tin: 'pop', tout: 'fade' },
+      studio: { title: app, logo: who.handle || '', tin: 'fade', tout: 'fade' },
+      panel: { title: 'In this video', sub: (p.features || 'The big idea\nHow it works\nWhat is next').split('\n').slice(0, 4).join('\n'), all: false, s: 2, e: 12, tin: 'slide_r', tout: 'slide_r', color: '#1d2433', accent: brand },
+      glass: { title: name, sub: who.handle || 'Maker of ' + app, all: false, s: 1, e: 7, accent: '#3ea6ff', tin: 'slide_u', tout: 'fade' },
+      sport: { tag: 'EP 1', title: app, sub: 'Devlog', all: false, s: 1, e: 8, tin: 'slide_l', tout: 'slide_l' },
+      minimal: { title: name, sub: 'Maker of ' + app, all: false, s: 1, e: 7, accent: brand, tin: 'fade', tout: 'fade' },
+      headline: { tag: 'TODAY', title: (p.tagline || 'What I built this week'), logo: app, tin: 'slide_d', tout: 'slide_d' },
+      quote: { title: p.tagline || 'Ship small, ship often.', sub: name, all: false, s: 2, e: 9, font: 'serif', tin: 'zoom', tout: 'fade' },
+      rec: { title: 'A-CAM', clock: true, color: '#e62117', tin: 'none', tout: 'none' }
+    }[style] || {};
+    return Object.assign(base, d);
+  };
+  /* Ready-made sets: several layers at once. */
+  var AA = { color: '#0B1220', accent: '#2F5BFF', green: '#0E9F6E' };
+  VB.FRAME_SETS = [
+    { key: 'addanapp', name: 'Addanapp newsroom', emoji: '🅰️', blurb: 'Navy and blue: bug, name tag and services ticker', layers: [
+      { style: 'bug', logo: 'Addanapp', title: 'triple A software delivery', color: AA.color, accent: AA.accent, font: 'serif', pos: 'tr', tin: 'fade', tout: 'fade' },
+      { style: 'desk', tag: 'ADDANAPP', title: 'Your name', sub: 'Software delivery · Montréal', logo: 'addanapp.com', color: AA.accent, accent: AA.green, font: 'roboto', pos: 'bl', all: false, s: 1, e: 10, tin: 'slide_l', tout: 'slide_l', clock: false },
+      { style: 'ticker', tag: 'ADDANAPP', ticker: 'Web apps, admin panels, client portals and data platforms | AI-accelerated, human-validated | Fixed quotes. Pay for results. | addanapp.com', color: AA.accent, accent: AA.green, font: 'roboto', clock: true, speed: 0.9, tin: 'slide_u', tout: 'slide_d' }] },
+    { key: 'addanapp_lt', name: 'Addanapp name tag', emoji: '🔷', blurb: 'One clean lower third in Addanapp blue', layers: [
+      { style: 'glass', title: 'Your name', sub: 'Addanapp · triple A software delivery', color: AA.accent, accent: AA.green, font: 'serif', pos: 'bl', all: false, s: 1, e: 8, tin: 'slide_u', tout: 'fade' }] },
+    { key: 'evening', name: 'Evening news', emoji: '🌆', blurb: 'Red classic: live badge, name tag, ticker', layers: [
+      { style: 'live', tag: 'LIVE', sub: 'Studio', clock: true, color: '#e62117', pos: 'tl', tin: 'pop', tout: 'fade' },
+      { style: 'desk', tag: 'NEWS', title: 'Your name', sub: 'App maker', color: '#cc181e', accent: '#ffc400', all: false, s: 1, e: 9, tin: 'slide_l', tout: 'slide_l' },
+      { style: 'ticker', tag: 'LATEST', ticker: 'New video every week | Subscribe for more | Links in the description', color: '#cc181e', accent: '#ffc400', clock: true, tin: 'slide_u', tout: 'slide_d' }] },
+    { key: 'breaking', name: 'Breaking story', emoji: '🚨', blurb: 'For launches and big news', layers: [
+      { style: 'breaking', tag: 'BREAKING NEWS', title: 'It just shipped', sub: 'Here is what changed', color: '#cc181e', all: false, s: 0.5, e: 7, tin: 'wipe', tout: 'wipe' },
+      { style: 'headline', tag: 'LAUNCH', title: 'Everything new in this release', logo: 'LIVE', color: '#cc181e', accent: '#ffc400', tin: 'slide_d', tout: 'slide_d' }] },
+    { key: 'tech', name: 'Tech review', emoji: '💻', blurb: 'Studio frame, glass name tag, corner bug', layers: [
+      { style: 'studio', title: 'Review', logo: '', color: '#3ea6ff', accent: '#ffffff', tin: 'fade', tout: 'fade' },
+      { style: 'glass', title: 'Your name', sub: 'Tech, tools and apps', color: '#3ea6ff', accent: '#a36bff', all: false, s: 1, e: 7, tin: 'slide_u', tout: 'fade' }] },
+    { key: 'vlog', name: 'Vlog camera', emoji: '🎥', blurb: 'Viewfinder look with a minimal name', layers: [
+      { style: 'rec', title: 'A-CAM', clock: true, color: '#e62117', tin: 'none', tout: 'none' },
+      { style: 'minimal', title: 'Your name', sub: 'Day in the life', accent: '#ffc400', font: 'serif', all: false, s: 1, e: 6, tin: 'fade', tout: 'fade' }] }
+  ];
+  /* Layers of a set / saved preset -> fresh frames for an edit (new ids; names filled in where the set says "Your name"). */
+  VB.framesFrom = function (layers, who) {
+    who = who || {};
+    return (layers || []).map(function (l) {
+      var f = Object.assign(VB.newFrame(l.style || 'desk', who), JSON.parse(JSON.stringify(l)));
+      f.id = VB.uid('f').slice(0, 20);
+      if (f.title === 'Your name' && who.name) f.title = who.name;
+      return f;
+    });
+  };
+  /* The design of a frame without its timing (what a saved preset keeps). */
+  VB.frameDesign = function (f) {
+    var d = JSON.parse(JSON.stringify(f)); delete d.id; return d;
+  };
+  /* Make sure the frame fonts are ready before drawing an export (canvas text doesn't wait for web fonts). */
+  VB.loadFrameFonts = function () {
+    if (!document.fonts || !document.fonts.load) return Promise.resolve();
+    return Promise.all(['400 20px Anton', '400 20px "Bebas Neue"', '700 20px "Roboto Condensed"', '400 20px "Instrument Serif"', 'italic 400 20px "Instrument Serif"', '700 20px "JetBrains Mono"']
+      .map(function (f) { return document.fonts.load(f)['catch'](function () {}); }));
+  };
+})();
+
 /* ===== admin.html ===== */
 (function () {
   var esc = UI.esc;
@@ -3522,7 +4311,7 @@
   UI.page('edit', { title: 'Editor', auth: 'user' }, function (view, ctx) {
     var id = ctx.args[0], D = null, E = null, plan = null, srcs = {}, player = null, bar = null, sel = 0, tab = 'scene', dead = false;
     var hist = [], fut = [], dirty = false, saving = false, envs = {}, trackSel = null, cutSel = null, zoomSel = -1, music = null, fileMusic = null;
-    var asr = null, wsel = null, lastNow = -1;
+    var asr = null, wsel = null, lastNow = -1, presets = [], frameSel = -1;
     view.innerHTML = '<div class="ui-wrap"><div class="ui-skel" style="height:460px"></div></div>';
     function q(s) { return view.querySelector(s); }
     function takeById(tid) { return D.takes.filter(function (t) { return t.id === tid; })[0]; }
@@ -3540,7 +4329,14 @@
         return VB.vault.get('music:' + id).then(function (m) { fileMusic = music = m; });
       }).then(function () {
         if (E.music.gen) return VB.beat(E.music.gen).then(function (b) { if (b) music = { blob: b, name: E.music.name, gen: E.music.gen }; }, function () { /* no beat */ });
-      }).then(function () { draw(); if (dirty) save(); VB.getConfig(); });
+      }).then(function () {
+        return Promise.all([
+          E.look.lut === 'cube' ? VB.loadCube(E.look.cube) : null,
+          UI.apiQuiet('presets_list').then(function (r) { presets = r.presets || []; }, function () { presets = []; })]);
+      }).then(function () {
+        draw(); if (dirty) save(); VB.getConfig();
+        if (E.frames.length || VB.lookActive(E.look)) VB.loadFrameFonts().then(function () { if (!dead && player && !player.playing) player.seek(player.o); });
+      });
     }
 
     /* ---------------- frame */
@@ -3550,7 +4346,7 @@
         '<button class="ui-btn sm" data-undo title="Undo (Ctrl+Z)">' + UI.icon('undo') + '</button><button class="ui-btn sm" data-redo title="Redo (Ctrl+Shift+Z)">' + UI.icon('redo') + '</button>' +
         '<button class="ui-btn primary" data-export>' + UI.icon('download') + 'Export</button></div>' +
         '<div class="ed-main"><div><div class="ed-stage"><div class="cv"><canvas data-cv width="960" height="540"></canvas></div><div data-pbar></div></div></div>' +
-        '<div class="ui-card ed-insp"><nav class="ui-tabs">' + [['scene', 'Scene'], ['style', 'Style'], ['text', 'Text'], ['words', 'Words'], ['audio', 'Audio']].map(function (t) {
+        '<div class="ui-card ed-insp"><nav class="ui-tabs">' + [['scene', 'Scene'], ['style', 'Style'], ['look', 'Look'], ['frames', 'Frames'], ['text', 'Text'], ['words', 'Words'], ['audio', 'Audio']].map(function (t) {
           return '<button data-tab="' + t[0] + '" class="' + (tab === t[0] ? 'on' : '') + '">' + t[1] + '</button>'; }).join('') + '</nav><div class="ed-pane" data-pane></div></div></div>' +
         '<div class="ui-card ed-tl"><div class="ed-tools"><button class="ui-btn sm" data-addtake>' + UI.icon('film') + '<span class="lbl">Add take</span></button>' +
           '<button class="ui-btn sm" data-addcard>' + UI.icon('text') + '<span class="lbl">Title card</span></button><span class="sep"></span>' +
@@ -3757,8 +4553,9 @@
     function drawPane() {
       var box = q('[data-pane]'); if (!box) return;
       view.querySelectorAll('[data-tab]').forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === tab); });
-      box.innerHTML = ({ scene: paneScene, style: paneStyle, text: paneText, words: paneWords, audio: paneAudio })[tab]();
+      box.innerHTML = ({ scene: paneScene, style: paneStyle, look: paneLook, frames: paneFrames, text: paneText, words: paneWords, audio: paneAudio })[tab]();
       if (tab === 'scene') focusThumbs();
+      if (tab === 'look') lookThumbs();
       if (tab === 'text') boxThumbs();
       if (tab === 'words') { lastNow = -1; wordsNow(); }
     }
@@ -3866,7 +4663,9 @@
     function paneAudio() {
       var gen = E.music.gen || '';
       return '<div><h4>Voice</h4><label class="ui-field"><span>Voice volume: ' + Math.round((E.voice == null ? 1 : E.voice) * 100) + '%</span><input type="range" min="0" max="2" step="0.05" data-f="voice" value="' + (E.voice == null ? 1 : E.voice) + '"></label>' +
-          '<label class="ui-check"><input type="checkbox" data-f="voice_fx"' + (E.voice_fx === 'clean' ? ' checked' : '') + '><span>Clean voice: less rumble, clearer, more even (in the export)</span></label></div>' +
+          '<div style="margin-top:8px"><span class="small">Voice sound (in the export)</span>' + seg('voice_fx', VB.VOICE_FX, E.voice_fx || 'off') +
+          '<p class="small muted" style="margin:6px 0 0">' + ({ off: 'Your voice exactly as recorded.', clean: 'Less rumble, a little clearer, more even.', broadcast: 'Radio voice: tight, forward and loud, with a limiter so it never clips.',
+            warm: 'Fuller and softer, like a podcast mic.' }[E.voice_fx || 'off'] || '') + '</p></div></div>' +
         '<div><h4>Background music</h4><div class="ed-beats"><button data-beat="" class="' + (!gen && !fileMusic ? 'on' : '') + '">🔇 No music<small>Just your voice</small></button>' +
           VB.BEATS.map(function (b) { return '<button data-beat="' + b.key + '" class="' + (gen === b.key ? 'on' : '') + '">' + b.emoji + ' ' + esc(b.name) + '<small>' + esc(b.blurb) + '</small></button>'; }).join('') + '</div>' +
           '<p class="small muted" style="margin:8px 0">Buddy beats are made by the app, free to use anywhere. Or use your own track:</p>' +
@@ -3881,6 +4680,175 @@
           '<label class="ui-field"><span>Pauses longer than <b data-gapv>' + (UI.store.get('ed.gap', 0.8)).toFixed(1) + '</b> s</span><input type="range" min="0.4" max="2.5" step="0.1" data-gap value="' + UI.store.get('ed.gap', 0.8) + '"></label>' +
           '<button class="ui-btn sm" data-pausesall>' + UI.icon('scissors') + 'Remove pauses in every take</button></div>';
     }
+
+    /* ---------------- look: colour, light, key light, reframe */
+    var LOOK_GROUPS = [['Light', ['exposure', 'contrast', 'highlights', 'shadows', 'fade']], ['Colour', ['temp', 'tint', 'sat', 'vib']], ['Detail', ['sharpen', 'smooth', 'grain', 'vignette']]];
+    function sliderInfo(k) { return VB.SLIDERS[k] || { 'light.power': ['Brightness', 0, 1, 0.02], 'light.size': ['Size', 0.08, 1, 0.02], 'light.warm': ['Warmth', -1, 1, 0.02],
+      'crop.z': ['Zoom in', 1, 2.5, 0.05], 'crop.x': ['Left ↔ right', 0, 1, 0.01], 'crop.y': ['Up ↕ down', 0, 1, 0.01], amt: ['Strength', 0, 1, 0.05] }[k]; }
+    function fmtSigned(v, k) {
+      v = +v || 0;
+      if (k === 'exposure') return (v > 0 ? '+' : '') + v.toFixed(2) + ' EV';
+      if (k === 'crop.z') return v.toFixed(2) + '×';
+      var p = Math.round(v * 100); return (p > 0 && sliderInfo(k)[1] < 0 ? '+' : '') + p + (k === 'amt' ? '%' : '');
+    }
+    function isNeutral(k, v) { return k === 'crop.z' ? v <= 1.001 : k === 'crop.x' || k === 'crop.y' ? Math.abs(v - 0.5) < 0.004 : Math.abs(v || 0) < 0.004; }
+    function slider(k, v) {
+      var info = sliderInfo(k);
+      return '<label class="ui-field ed-sl' + (isNeutral(k, v) ? ' zero' : '') + '"><span>' + esc(info[0]) + ' <b>' + fmtSigned(v, k) + '</b></span>' +
+        '<input type="range" data-lkf="' + k + '" min="' + info[1] + '" max="' + info[2] + '" step="' + info[3] + '" value="' + (v || 0) + '"></label>';
+    }
+    /* A camera picture to measure / preview: the selected scene's camera, else any take with a camera. */
+    function lookCam() {
+      var order = [scene()].concat(E.scenes);
+      for (var i = 0; i < order.length; i++) {
+        var s = order[i]; if (!s || s.type !== 'take') continue;
+        var t = takeById(s.take), src = srcs[s.take]; if (!t || !src || src.missing) continue;
+        var img = t.mode === 'cam' ? src.main : src.cam; if (!img) continue;
+        if (src.kind === 'sample') { var L = VB.locate(plan, player ? player.o : 0); src.frame(L && L.s.take && L.s.take.id === t.id ? L.srcT : (s['in'] || 0) + 4); }
+        if (img.img.tagName === 'VIDEO' && img.img.readyState < 2) continue;
+        return img;
+      }
+      return null;
+    }
+    var testCard = null;
+    function lookSample() {  // what the look thumbnails show: your camera, or a test card with skin tones
+      var cam = lookCam(), c = document.createElement('canvas'); c.width = 160; c.height = 90;
+      var g = c.getContext('2d');
+      if (cam) { var k = Math.max(160 / cam.w, 90 / cam.h); try { g.drawImage(cam.img, (160 - cam.w * k) / 2, (90 - cam.h * k) / 2, cam.w * k, cam.h * k); return c; } catch (e) { /* fall through */ } }
+      if (!testCard) {
+        testCard = c; var gr = g.createLinearGradient(0, 0, 160, 90); gr.addColorStop(0, '#2b4d7a'); gr.addColorStop(0.5, '#d9a07a'); gr.addColorStop(1, '#3a7d4c'); g.fillStyle = gr; g.fillRect(0, 0, 160, 90);
+        g.fillStyle = '#c98a6a'; g.beginPath(); g.ellipse(80, 40, 22, 27, 0, 0, 7); g.fill(); g.fillStyle = '#3b2a20'; g.beginPath(); g.ellipse(80, 20, 24, 12, 0, 0, 7); g.fill();
+        g.fillStyle = '#c0392b'; g.fillRect(52, 70, 56, 20); ['#fff', '#ffde00', '#00b3e6', '#111'].forEach(function (col, i) { g.fillStyle = col; g.fillRect(4 + i * 10, 78, 9, 9); });
+      }
+      return testCard;
+    }
+    function lookThumbs() {
+      var base = lookSample();
+      view.querySelectorAll('[data-lkthumb]').forEach(function (cv) {
+        var key = cv.getAttribute('data-lkthumb'), L = Object.assign({}, E.look, { on: true, lut: key, amt: key === 'none' ? 0 : 1, crop: { z: 1, x: 0.5, y: 0.5, mirror: false }, light: { on: false } });
+        var out = VB.gradeSource('thumbs', { img: base, w: base.width, h: base.height }, L, 0), g = cv.getContext('2d');
+        try { g.drawImage(out.img, 0, 0, cv.width, cv.height); } catch (e) { /* not ready */ }
+      });
+      var pk = q('[data-lkpick]');
+      if (pk) {
+        var cam = lookCam(), c2 = pk.querySelector('canvas'), g2 = c2.getContext('2d'); g2.fillStyle = '#222'; g2.fillRect(0, 0, c2.width, c2.height);
+        if (cam) { var gr2 = VB.gradeSource('thumbs', cam, Object.assign({}, E.look, { on: true }), 0); try { g2.drawImage(gr2.img, 0, 0, c2.width, c2.height); } catch (e) { /* not ready */ } }
+        var dot = pk.querySelector('i'); dot.style.left = E.look.light.x * 100 + '%'; dot.style.top = E.look.light.y * 100 + '%';
+      }
+    }
+    function paneLook() {
+      var L = E.look, li = L.light, cr = L.crop, mine = presets.filter(function (p) { return p.kind === 'look'; }), def = UI.store.get('vb.look', null);
+      var html = '<div class="ui-row between"><label class="ui-check"><input type="checkbox" data-lk="on"' + (L.on ? ' checked' : '') + '><span><b>Use a look on this video</b></span></label>' +
+        '<button class="ui-btn sm ed-cmp" data-lkcmp title="Hold to see the picture without the look">' + UI.icon('eye') + 'Hold: before</button></div>' +
+        (VB.webglLooks() ? '' : '<p class="ui-hint" style="margin:0">This browser has no WebGL, so looks use a simpler version (no LUTs, key light or skin smoothing).</p>') +
+        seg('look.target', [['cam', 'Camera only'], ['all', 'Camera + screen']], L.target) +
+        '<div><h4>Fix the light</h4><button class="ui-btn sm primary" data-lkauto' + (lookCam() ? '' : ' disabled title="Needs a take with your camera"') + '>' + UI.icon('wand') + 'Fix my lighting</button>' +
+          '<div class="ed-chips" style="margin-top:8px">' + VB.QUICK_FIXES.map(function (f) { return '<button data-lkfix="' + f.key + '">' + f.emoji + ' ' + esc(f.name) + '</button>'; }).join('') +
+          '<button data-lkreset>↺ Reset all</button></div></div>' +
+        '<div><h4>Colour look (LUT)</h4><div class="ed-looks">' + VB.LOOKS.map(function (l) {
+          return '<button data-lklut="' + l.key + '" class="' + (L.lut === l.key ? 'on' : '') + '" title="' + esc(l.blurb) + '"><canvas data-lkthumb="' + l.key + '" width="96" height="54"></canvas>' + esc(l.name) + '</button>'; }).join('') + '</div>' +
+          (L.lut !== 'none' ? '<div style="margin-top:8px">' + slider('amt', L.amt) + '</div>' : '') +
+          '<div class="ui-row" style="margin-top:8px"><label class="ui-btn sm" style="cursor:pointer">' + UI.icon('upload') + 'Load a .cube LUT<input type="file" accept=".cube,text/plain" data-lkcube hidden></label>' +
+          (L.lut === 'cube' ? '<span class="small' + (VB.hasCube(L.cube) ? '' : ' rc-warn') + '">🎨 ' + esc(L.cube) + (VB.hasCube(L.cube) ? '' : ' isn\'t on this computer') + '</span>' : '<span class="small muted">From Resolve, Premiere or your phone app</span>') + '</div></div>';
+      LOOK_GROUPS.forEach(function (gp) { html += '<div class="ed-group"><h4 style="margin:0">' + gp[0] + '</h4>' + gp[1].map(function (k) { return slider(k, L[k]); }).join('') + '</div>'; });
+      html += '<div class="ed-group"><h4 style="margin:0">Key light</h4><label class="ui-check"><input type="checkbox" data-lk="light.on"' + (li.on ? ' checked' : '') + '><span>Add a soft light on your face</span></label>' +
+          (li.on ? '<div class="ed-focus" data-lkpick><canvas width="320" height="180"></canvas><i></i></div><p class="small muted" style="margin:0">Click your face in the picture to aim the light.</p>' +
+            slider('light.power', li.power) + slider('light.size', li.size) + slider('light.warm', li.warm) : '') + '</div>' +
+        '<div class="ed-group"><h4 style="margin:0">Reframe the camera</h4>' + slider('crop.z', cr.z) +
+          (cr.z > 1.001 ? '<div class="ed-2">' + slider('crop.x', cr.x) + slider('crop.y', cr.y) + '</div>' : '') +
+          '<label class="ui-check"><input type="checkbox" data-lk="crop.mirror"' + (cr.mirror ? ' checked' : '') + '><span>Mirror (flip left and right)</span></label></div>' +
+        '<div class="ed-group"><h4 style="margin:0">Saved looks</h4>' +
+          (mine.length ? '<div class="ed-mine">' + mine.map(function (p) { return '<span class="ed-mine-i"><button data-lkmine="' + esc(p.id) + '">' + esc((p.emoji || '🎨') + ' ' + p.name) + '</button><button data-pdel="' + esc(p.id) + '" aria-label="Delete ' + esc(p.name) + '">✕</button></span>'; }).join('') + '</div>' : '<p class="small muted" style="margin:0">Save a look once, then use it on every video.</p>') +
+          '<div class="ui-row"><button class="ui-btn sm" data-lksave>' + UI.icon('star2') + 'Save this look</button><button class="ui-btn sm" data-lkdefault>' + UI.icon('pin') + 'Use for new videos</button></div>' +
+          (def ? '<p class="small muted" style="margin:0">New videos start with your default look. <button class="vb-link" style="background:none;border:0;padding:0;cursor:pointer;font:inherit" data-lkdefoff>Stop</button></p>' : '') + '</div>';
+      return html;
+    }
+    function lookChange(fn, light) { change(function () { fn(E.look); E.look.on = true; }, light ? { light: true } : undefined); }
+    function lookSet(path, v) {
+      var parts = path.split('.'), o = E.look;
+      for (var i = 0; i < parts.length - 1; i++) o = o[parts[i]];
+      o[parts[parts.length - 1]] = v;
+    }
+    function askName(title, value) {
+      return new Promise(function (res) {
+        var m = UI.modal('<h2>' + esc(title) + '</h2><label class="ui-field"><span>Name</span><input type="text" data-nm maxlength="60" value="' + esc(value || '') + '"></label>' +
+          '<div class="ui-row end" style="margin-top:12px"><button class="ui-btn ghost" data-close>Cancel</button><button class="ui-btn primary" data-nmok>Save</button></div>', { onclose: function () { res(null); } });
+        var inp = m.el.querySelector('[data-nm]'); inp.focus(); inp.select();
+        function go() { var v = inp.value.trim(); if (v.length < 2) { inp.focus(); return; } res(v); res = function () {}; m.close(); }
+        m.el.querySelector('[data-nmok]').onclick = go;
+        inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+      });
+    }
+    function savePreset(kind, name, emoji, data) {
+      return UI.api('preset_save', { kind: kind, name: name, emoji: emoji, data: data }).then(function (r) {
+        presets = presets.filter(function (p) { return p.id !== r.preset.id; }); presets.unshift(r.preset);
+        UI.toast('Saved “' + r.preset.name + '”. Find it under ' + (kind === 'look' ? 'Saved looks' : 'My frames') + ' in any video.', 'ok'); drawPane();
+        return r.preset;
+      });
+    }
+
+    /* ---------------- frames: newsroom graphics over the video */
+    function who() { return { name: ctx.me && ctx.me.name, handle: D.handle, product: D.product }; }
+    function addFrames(list, open) {
+      var room = VB.FRAME_MAX - E.frames.length;
+      if (room <= 0) { UI.toast('A video can have ' + VB.FRAME_MAX + ' frames. Delete one first.', 'error'); return false; }
+      if (list.length > room) { list = list.slice(0, room); UI.toast('Only the first ' + room + ' fit (' + VB.FRAME_MAX + ' at most).'); }
+      change(function () { E.frames = E.frames.concat(list); });
+      frameSel = open ? E.frames.length - 1 : -1; tab = 'frames'; drawPane();
+      var f0 = list[0]; if (f0 && !player.playing) player.seek(Math.min(plan.outDur, (f0.all ? 0 : f0.s) + (f0.din || 0.6) + 0.4));
+      return true;
+    }
+    function frameField(f, k) {
+      var lbl = { tag: 'Tag', title: f.style === 'quote' ? 'Quote' : f.style === 'bug' ? 'Small line under the logo' : f.style === 'rec' ? 'Camera label' : f.style === 'headline' ? 'Headline' : 'Title',
+        sub: f.style === 'panel' ? 'Points (one per line)' : f.style === 'quote' ? 'Who said it' : f.style === 'live' ? 'Place' : 'Second line', logo: 'Logo (text or emoji)', ticker: 'Headlines (separate them with |)' }[k];
+      if (k === 'clock') return '<label class="ui-check"><input type="checkbox" data-ff="clock"' + (f.clock ? ' checked' : '') + '><span>' + (f.style === 'rec' ? 'Show the timecode' : 'Show the time') + '</span></label>';
+      if (k === 'speed') return '<label class="ui-field ed-sl"><span>Scroll speed <b>' + (f.speed || 1).toFixed(1) + '×</b></span><input type="range" data-ff="speed" min="0.3" max="3" step="0.1" value="' + (f.speed || 1) + '"></label>';
+      var max = { tag: 24, title: 90, sub: 240, logo: 24, ticker: 500 }[k];
+      if ((k === 'sub' && f.style === 'panel') || k === 'ticker') return '<label class="ui-field"><span>' + lbl + '</span><textarea data-ff="' + k + '" maxlength="' + max + '" rows="3">' + esc(f[k]) + '</textarea></label>';
+      return '<label class="ui-field"><span>' + lbl + '</span><input type="text" data-ff="' + k + '" maxlength="' + max + '" value="' + esc(f[k]) + '"></label>';
+    }
+    function frameCard(f, i) {
+      var st = VB.frameStyle(f.style), open = i === frameSel, when = f.all ? 'Whole video' : VB.fmtTime(f.s, true) + ' to ' + VB.fmtTime(f.e, true);
+      var trans = VB.FRAME_TRANS.map(function (tr) { return '<option value="' + tr[0] + '">' + esc(tr[1]) + '</option>'; }).join('');
+      var head = '<div class="ed-fr-h" data-fopen><span class="nm"><b>' + st.emoji + ' ' + esc(f.title || f.tag || f.logo || st.name) + '</b><small>' + esc(st.name) + ' · ' + when + '</small></span>' +
+        '<button data-fmove="-1" title="Further back"' + (i === 0 ? ' disabled' : '') + '>▲</button><button data-fmove="1" title="Further forward"' + (i === E.frames.length - 1 ? ' disabled' : '') + '>▼</button>' +
+        '<button data-fsave title="Save to My frames">' + UI.icon('star2') + '</button><button data-fdup title="Duplicate">' + UI.icon('copy') + '</button><button data-fdel title="Delete">' + UI.icon('trash') + '</button></div>';
+      if (!open) return '<div class="ed-fr" data-fi="' + i + '">' + head + '</div>';
+      var poss = st.pos || ['bl'], POSN = { bl: '↙ Bottom left', br: '↘ Bottom right', tl: '↖ Top left', tr: '↗ Top right' };
+      return '<div class="ed-fr open" data-fi="' + i + '">' + head + '<div class="ed-fr-b">' +
+        st.fields.map(function (k) { return frameField(f, k); }).join('') +
+        '<div class="ed-2"><label class="ui-field"><span>Main colour</span><input type="color" data-ff="color" value="' + esc(f.color) + '" style="width:100%;height:36px;padding:2px"></label>' +
+          '<label class="ui-field"><span>Accent</span><input type="color" data-ff="accent" value="' + esc(f.accent) + '" style="width:100%;height:36px;padding:2px"></label></div>' +
+        '<div class="ed-2"><label class="ui-field"><span>Font</span><select data-ff="font">' + Object.keys(VB.FONTS).map(function (k) { return '<option value="' + k + '"' + (f.font === k ? ' selected' : '') + '>' + VB.FONTS[k][0] + '</option>'; }).join('') + '</select></label>' +
+          '<label class="ui-field ed-sl"><span>Size <b>' + Math.round((f.size || 1) * 100) + '%</b></span><input type="range" data-ff="size" min="0.6" max="1.6" step="0.05" value="' + (f.size || 1) + '"></label></div>' +
+        (poss.length > 1 ? '<div class="ed-chips">' + poss.map(function (p) { return '<button data-fpos="' + p + '" class="' + (f.pos === p ? 'on' : '') + '">' + POSN[p] + '</button>'; }).join('') + '</div>' : '') +
+        '<div class="ed-group"><label class="ui-check"><input type="checkbox" data-ff="all"' + (f.all ? ' checked' : '') + '><span>Show for the whole video</span></label>' +
+          (f.all ? '' : '<div class="ed-2"><label class="ui-field"><span>From (s)</span><input type="number" step="0.1" min="0" data-ff="s" value="' + f.s + '"></label><label class="ui-field"><span>To (s)</span><input type="number" step="0.1" min="0" data-ff="e" value="' + f.e + '"></label></div>' +
+            '<div class="ui-row"><button class="ui-btn sm" data-fhere="s">Start at playhead</button><button class="ui-btn sm" data-fhere="e">End at playhead</button></div>') +
+          '<label class="ui-check"><input type="checkbox" data-ff="cards"' + (f.cards ? ' checked' : '') + '><span>Also over title cards</span></label></div>' +
+        '<div class="ed-group"><div class="ed-2"><label class="ui-field"><span>Comes in with</span><select data-ff="tin">' + trans.replace('value="' + f.tin + '"', 'value="' + f.tin + '" selected') + '</select></label>' +
+          '<label class="ui-field"><span>Goes out with</span><select data-ff="tout">' + trans.replace('value="' + f.tout + '"', 'value="' + f.tout + '" selected') + '</select></label></div>' +
+          '<div class="ed-2"><label class="ui-field ed-sl"><span>In <b>' + (f.din || 0.6).toFixed(1) + ' s</b></span><input type="range" data-ff="din" min="0.1" max="3" step="0.1" value="' + (f.din || 0.6) + '"></label>' +
+          '<label class="ui-field ed-sl"><span>Out <b>' + (f.dout || 0.5).toFixed(1) + ' s</b></span><input type="range" data-ff="dout" min="0.1" max="3" step="0.1" value="' + (f.dout || 0.5) + '"></label></div>' +
+          '<div class="ui-row"><button class="ui-btn sm" data-fprev>' + UI.icon('play') + 'Play its entrance</button>' + (f.all ? '' : '<button class="ui-btn sm" data-fprevout>' + UI.icon('play') + 'Play its exit</button>') + '</div></div>' +
+        '</div></div>';
+    }
+    function paneFrames() {
+      var list = E.frames, mine = presets.filter(function (p) { return p.kind === 'frame'; }), auto = UI.store.get('vb.frames', null);
+      return '<div><h4>Add a frame</h4><div class="ed-fstyles">' + VB.FRAME_STYLES.map(function (st) { return '<button data-fadd="' + st.key + '" title="' + esc(st.blurb) + '"><b>' + st.emoji + '</b>' + esc(st.name) + '</button>'; }).join('') + '</div></div>' +
+        '<div><h4>Ready-made sets</h4><div class="ed-chips">' + VB.FRAME_SETS.map(function (s) { return '<button data-fset="' + s.key + '" title="' + esc(s.blurb) + '">' + s.emoji + ' ' + esc(s.name) + '</button>'; }).join('') + '</div></div>' +
+        '<div><h4>My frames</h4>' + (mine.length ? '<div class="ed-mine">' + mine.map(function (p) {
+            var n = (p.data.layers || []).length;
+            return '<span class="ed-mine-i"><button data-fmine="' + esc(p.id) + '" title="Add ' + UI.plural(n, 'layer') + '">' + esc((p.emoji || '⭐') + ' ' + p.name) + (n > 1 ? ' ×' + n : '') + '</button><button data-pdel="' + esc(p.id) + '" aria-label="Delete ' + esc(p.name) + '">✕</button></span>'; }).join('') + '</div>'
+          : '<p class="small muted" style="margin:0">Press ' + UI.icon('star2') + ' on a frame to keep it here for every video.</p>') + '</div>' +
+        '<div class="ed-group"><div class="ui-row between"><h4 style="margin:0">In this video (' + list.length + ')</h4>' +
+          (list.length ? '<span><button class="ui-btn sm" data-fsaveall title="Save every frame of this video as one set">' + UI.icon('star2') + 'Save as a set</button></span>' : '') + '</div>' +
+          (list.length ? '<p class="small muted" style="margin:0">They all show at once. Lower in the list = on top.</p>' + list.map(frameCard).join('') +
+            '<div class="ui-row" style="margin-top:4px"><button class="ui-btn sm" data-fauto>' + UI.icon('pin') + 'Use these on new videos</button></div>'
+            : '<p class="ed-empty">No frames yet. Pick a style or a set above.</p>') +
+          (auto ? '<p class="small muted" style="margin:0">New videos start with “' + esc(auto.name) + '”. <button class="vb-link" style="background:none;border:0;padding:0;cursor:pointer;font:inherit" data-fautooff>Stop</button></p>' : '') + '</div>';
+    }
+    function frameAt(el) { var c = el.closest('[data-fi]'); return c ? +c.getAttribute('data-fi') : -1; }
 
     /* ---------------- words: captions + transcript */
     function wordState(s, w) {
@@ -4152,6 +5120,112 @@
       });
     }
 
+    /* ---------------- look + frame clicks (return true when handled) */
+    function presetById(id) { return presets.filter(function (p) { return p.id === id; })[0]; }
+    function onLookClick(e, t) {
+      var b;
+      if (t.closest('[data-lkauto]')) {
+        var cam = lookCam(); if (!cam) { UI.toast('Add a take with your camera first.'); return true; }
+        var fix = VB.lookAuto(cam.img); if (!fix) { UI.toast('Couldn\'t read the camera picture yet. Press play for a second and try again.'); return true; }
+        lookChange(function (L) { ['exposure', 'shadows', 'highlights', 'contrast', 'temp', 'tint', 'vib'].forEach(function (k) { L[k] = fix[k]; }); if (fix.light) L.light = Object.assign({}, L.light, fix.light); });
+        drawPane();
+        var bits = [];
+        if (Math.abs(fix.exposure) >= 0.1) bits.push(fix.exposure > 0 ? 'brighter' : 'darker');
+        if (fix.shadows >= 0.1) bits.push('lifted shadows');
+        if (fix.highlights <= -0.1) bits.push('saved the highlights');
+        if (Math.abs(fix.temp) >= 0.1) bits.push(fix.temp > 0 ? 'warmer' : 'cooler');
+        if (fix.light) bits.push('a key light on your face');
+        UI.toast(bits.length ? 'Fixed: ' + bits.join(', ') + '.' : 'Your light already looks good. Small touch-ups applied.', 'ok');
+        return true;
+      }
+      if ((b = t.closest('[data-lkfix]'))) { var qf = VB.QUICK_FIXES.filter(function (x) { return x.key === b.getAttribute('data-lkfix'); })[0]; lookChange(function (L) { qf.fix(L); }); drawPane(); UI.toast(qf.emoji + ' ' + qf.name + ' applied', 'ok'); return true; }
+      if (t.closest('[data-lkreset]')) { change(function () { var keep = { on: E.look.on, target: E.look.target }; E.look = Object.assign(VB.LOOK_NEUTRAL(), keep); }); drawPane(); return true; }
+      if ((b = t.closest('[data-lklut]'))) { var key = b.getAttribute('data-lklut'); lookChange(function (L) { L.lut = key; if (key !== 'none' && !(L.amt > 0)) L.amt = 1; }); drawPane(); return true; }
+      if ((b = t.closest('[data-lkpick]'))) {
+        var r = b.getBoundingClientRect(), lx = clamp((e.clientX - r.left) / r.width, 0, 1), ly = clamp((e.clientY - r.top) / r.height, 0, 1);
+        lookChange(function (L) { L.light.x = +lx.toFixed(3); L.light.y = +ly.toFixed(3); }, true); lookThumbs(); return true;
+      }
+      if ((b = t.closest('[data-lkmine]'))) {
+        var p = presetById(b.getAttribute('data-lkmine')); if (!p) return true;
+        var nl = VB.fullLook(Object.assign({}, p.data, { on: true }));
+        (nl.lut === 'cube' ? VB.loadCube(nl.cube) : Promise.resolve(true)).then(function (has) {
+          change(function () { E.look = nl; }); drawPane();
+          UI.toast(has ? '🎨 ' + p.name + ' is on' : p.name + ' uses “' + nl.cube + '”, which isn\'t on this computer: load that .cube file again.', has ? 'ok' : 'error');
+        });
+        UI.apiQuiet('preset_used', p.id); return true;
+      }
+      if (t.closest('[data-lksave]')) {
+        var nm = (VB.lookInfo(E.look.lut) || {}).name; nm = E.look.lut === 'cube' ? E.look.cube : nm && E.look.lut !== 'none' ? nm + ' (mine)' : 'My look';
+        askName('Save this look', nm).then(function (n) { if (n) savePreset('look', n, (VB.lookInfo(E.look.lut) || {}).emoji || '🎨', E.look); });
+        return true;
+      }
+      if (t.closest('[data-lkdefault]')) { UI.store.set('vb.look', JSON.parse(JSON.stringify(Object.assign({}, E.look, { on: true })))); UI.toast('New videos will start with this look.', 'ok'); drawPane(); return true; }
+      if (t.closest('[data-lkdefoff]')) { UI.store.set('vb.look', null); UI.toast('New videos start without a look.'); drawPane(); return true; }
+      if ((b = t.closest('[data-pdel]'))) {
+        var pid = b.getAttribute('data-pdel'), pp = presetById(pid); if (!pp) return true;
+        UI.confirm({ title: 'Delete “' + pp.name + '”?', text: 'Videos that already use it keep it.', ok: 'Delete', danger: true }).then(function (y) {
+          if (y) UI.api('preset_delete', pid).then(function () { presets = presets.filter(function (x) { return x.id !== pid; }); drawPane(); });
+        });
+        return true;
+      }
+      return false;
+    }
+    function onFrameClick(e, t) {
+      var b, fi;
+      if ((b = t.closest('[data-fadd]'))) { addFrames([VB.newFrame(b.getAttribute('data-fadd'), who())], true); return true; }
+      if ((b = t.closest('[data-fset]'))) {
+        var set = VB.FRAME_SETS.filter(function (s) { return s.key === b.getAttribute('data-fset'); })[0];
+        if (addFrames(VB.framesFrom(set.layers, who()), false)) UI.toast(set.emoji + ' ' + set.name + ': ' + UI.plural(set.layers.length, 'frame') + ' added', 'ok');
+        return true;
+      }
+      if ((b = t.closest('[data-fmine]'))) { var mp = presetById(b.getAttribute('data-fmine')); if (mp && addFrames(VB.framesFrom(mp.data.layers, who()), mp.data.layers.length === 1)) UI.apiQuiet('preset_used', mp.id); return true; }
+      if (t.closest('[data-fsaveall]')) {
+        askName('Save these frames as a set', (D.video.title + ' frames').slice(0, 60)).then(function (n) { if (n) savePreset('frame', n, '🗂️', { layers: E.frames.map(VB.frameDesign) }); });
+        return true;
+      }
+      if (t.closest('[data-fauto]')) {
+        UI.store.set('vb.frames', { name: E.frames.map(function (f) { return VB.frameStyle(f.style).name; }).join(' + ').slice(0, 80), layers: E.frames.map(VB.frameDesign) });
+        UI.toast('New videos will start with these frames.', 'ok'); drawPane(); return true;
+      }
+      if (t.closest('[data-fautooff]')) { UI.store.set('vb.frames', null); UI.toast('New videos start without frames.'); drawPane(); return true; }
+      if (!t.closest('[data-fi]')) return false;
+      fi = frameAt(t);
+      if ((b = t.closest('[data-fmove]'))) {
+        var d2 = +b.getAttribute('data-fmove'), to = clamp(fi + d2, 0, E.frames.length - 1);
+        change(function () { var x = E.frames.splice(fi, 1)[0]; E.frames.splice(to, 0, x); });
+        if (frameSel === fi) frameSel = to; drawPane(); return true;
+      }
+      if (t.closest('[data-fsave]')) {
+        var fs = E.frames[fi], st = VB.frameStyle(fs.style);
+        askName('Save this frame', (fs.title || fs.logo || st.name).slice(0, 60)).then(function (n) { if (n) savePreset('frame', n, st.emoji, { layers: [VB.frameDesign(fs)] }); });
+        return true;
+      }
+      if (t.closest('[data-fdup]')) { var cp = JSON.parse(JSON.stringify(E.frames[fi])); cp.id = VB.uid('f').slice(0, 20); addFrames([cp], true); return true; }
+      if (t.closest('[data-fdel]')) { change(function () { E.frames.splice(fi, 1); }); frameSel = -1; drawPane(); return true; }
+      if ((b = t.closest('[data-fpos]'))) { var pv = b.getAttribute('data-fpos'); change(function () { E.frames[fi].pos = pv; }); drawPane(); return true; }
+      if ((b = t.closest('[data-fhere]'))) {
+        var which = b.getAttribute('data-fhere'), at = +player.o.toFixed(2);
+        change(function () { var f = E.frames[fi]; f.all = false; f[which] = at; if (f.e - f.s < 0.5) { if (which === 's') f.e = +(at + 5).toFixed(2); else f.s = Math.max(0, +(at - 5).toFixed(2)); } });
+        drawPane(); return true;
+      }
+      if (t.closest('[data-fprev]') || t.closest('[data-fprevout]')) {
+        var fq = E.frames[fi], isOut = !!t.closest('[data-fprevout]');
+        player.seek(Math.max(0, isOut ? fq.e - (fq.dout || 0.5) - 1 : (fq.all ? 0 : fq.s) - 0.3)).then(function () { player.play(); });
+        return true;
+      }
+      if (t.closest('[data-fopen]')) {
+        frameSel = frameSel === fi ? -1 : fi; drawPane();
+        var ff = E.frames[frameSel];
+        if (ff && !ff.all && !player.playing && (player.o < ff.s || player.o > ff.e)) player.seek(Math.min(plan.outDur, ff.s + (ff.din || 0.6) + 0.3));
+        return true;
+      }
+      return false;
+    }
+    /* Hold "before" to compare without the look. */
+    function compare(on) { if (!player) return; player.opt.noLook = on; if (!player.playing) player.draw(); }
+    view.addEventListener('pointerdown', function (e) { if (e.target.closest && e.target.closest('[data-lkcmp]')) { e.preventDefault(); compare(true); } });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) { view.addEventListener(ev, function (e) { if (player && player.opt.noLook && (ev !== 'pointerleave' || (e.target.closest && e.target.closest('[data-lkcmp]')))) compare(false); }, true); });
+
     /* ---------------- events */
     view.addEventListener('click', function (e) {
       var t = e.target, b;
@@ -4159,6 +5233,7 @@
       if ((b = t.closest('[data-tab]'))) { tab = b.getAttribute('data-tab'); drawPane(); return; }
       if (t.closest('[data-undo]')) { undo(); return; }
       if (t.closest('[data-redo]')) { redo(); return; }
+      if (onLookClick(e, t) || onFrameClick(e, t)) return;
       if (t.closest('[data-export]')) { exportDialog(); return; }
       if ((b = t.closest('[data-addtake]'))) { addTakeMenu(b); return; }
       if (t.closest('[data-addcard]')) { var p = D.product || {}; change(function () { E.scenes.splice(sel + 1, 0, VB.cardScene(p.name ? 'app' : 'classic', 'New section', '', p.color, p.emoji)); sel++; }); tab = 'scene'; drawPane(); return; }
@@ -4284,8 +5359,24 @@
       if (t.closest('[data-nomusic]')) { VB.vault.del('music:' + id); music = null; fileMusic = null; player.setMusic(null); change(function () { E.music.name = ''; E.music.gen = ''; }); drawPane(); }
     });
     function readVal(el) { return el.type === 'checkbox' ? el.checked : el.type === 'range' || el.type === 'number' || el.tagName === 'SELECT' && /speed/.test(el.getAttribute('data-f') || '') ? +el.value : el.value; }
+    function frameVal(t) { return t.type === 'checkbox' ? t.checked : t.type === 'range' || t.type === 'number' ? +t.value : t.value; }
     view.addEventListener('input', function (e) {
       var t = e.target;
+      if (t.matches('[data-lkf]')) {
+        var lk = t.getAttribute('data-lkf'), lv = +t.value;
+        lookChange(function () { lookSet(lk, lv); }, true);
+        var fl = t.closest('.ed-sl'); if (fl) { fl.querySelector('b').textContent = fmtSigned(lv, lk); fl.classList.toggle('zero', isNeutral(lk, lv)); }
+        var on = q('[data-lk="on"]'); if (on) on.checked = true;
+        if (lk.indexOf('light.') === 0) lookThumbs();
+        return;
+      }
+      if (t.matches('[data-ff]') && (t.type === 'text' || t.type === 'color' || t.type === 'range' || t.tagName === 'TEXTAREA')) {
+        var fi = frameAt(t), fk = t.getAttribute('data-ff'), fv = frameVal(t);
+        change(function () { E.frames[fi][fk] = fv; }, { light: true });
+        if (t.type === 'range') { var b2 = t.closest('.ed-sl') && t.closest('.ed-sl').querySelector('b'); if (b2) b2.textContent = fk === 'size' ? Math.round(fv * 100) + '%' : fk === 'speed' ? fv.toFixed(1) + '×' : fv.toFixed(1) + ' s'; }
+        if (!player.playing) player.seek(player.o);
+        return;
+      }
       if (t.matches('[data-f]') && (t.type === 'range' || t.type === 'text' || t.type === 'color')) {
         var path = t.getAttribute('data-f'), v = readVal(t);
         change(function () { setPath(path, v); }, { light: true });
@@ -4307,6 +5398,30 @@
     view.addEventListener('change', function (e) {
       var t = e.target;
       if (t.matches('[data-asrmodel]')) { UI.store.set('ed.asr', t.value); return; }
+      if (t.matches('[data-lkf]')) { lookThumbs(); if (t.getAttribute('data-lkf') === 'crop.z') drawPane(); return; }
+      if (t.matches('[data-lk]')) {
+        var lp = t.getAttribute('data-lk'), lc = t.checked;
+        if (lp === 'on') change(function () { E.look.on = lc; }); else lookChange(function () { lookSet(lp, lc); });
+        drawPane(); return;
+      }
+      if (t.matches('[data-lkcube]')) {
+        var cf = t.files[0]; if (!cf) return;
+        VB.saveCube(cf).then(function (name) {
+          lookChange(function (L) { L.lut = 'cube'; L.cube = name; L.amt = 1; }); drawPane();
+          UI.toast('🎨 “' + name + '” is on. It\'s kept in this browser for your next videos too.', 'ok');
+        }, function (err) { UI.toast(err.message || 'That file isn\'t a .cube LUT.', 'error'); });
+        return;
+      }
+      if (t.matches('[data-ff]')) {
+        var fi = frameAt(t), fk = t.getAttribute('data-ff'), fv = frameVal(t);
+        if (t.type === 'text' || t.type === 'color' || t.type === 'range' || t.tagName === 'TEXTAREA') return;  // already applied while typing
+        change(function () {
+          var f = E.frames[fi];
+          if (fk === 's' || fk === 'e') { f[fk] = Math.max(0, +fv || 0); if (f.e - f.s < 0.3) f.e = +(f.s + 0.3).toFixed(2); }
+          else f[fk] = fv;
+        });
+        drawPane(); return;
+      }
       if (t.matches('[data-bf]')) {
         var bi3 = +t.closest('[data-bi]').getAttribute('data-bi'), bk3 = t.getAttribute('data-bf');
         change(function () { var x = scene().boxes[bi3]; x[bk3] = Math.max(0, +t.value || 0); if (x.e - x.s < 0.3) x.e = x.s + 0.3; });
@@ -4362,7 +5477,8 @@
     function onResize() { drawTrack(); }
     window.addEventListener('resize', onResize);
     VB._editPage = { plan: function () { return plan; }, edit: function () { return E; }, player: function () { return player; }, select: selectScene, save: save,
-      tab: function (k) { tab = k; drawPane(); }, takes: function () { return D.takes; }, music: function () { return music; } };
+      tab: function (k) { tab = k; drawPane(); }, takes: function () { return D.takes; }, music: function () { return music; },
+      presets: function () { return presets; }, lookCam: lookCam };
     return {
       ready: load(),
       destroy: function () {
@@ -5089,8 +6205,8 @@
       shape: 'circle', pos: 'br' }, UI.store.get('rec', {}));
     if (!VB.canScreen()) S.mode = 'cam';
     var data = null, video = null, takes = [], R = null, state = 'idle', timer = 0, raf = 0, prompter = null, review = null, reviewPlayer = null;
-    var cancelCount = null, quietSince = 0, unsub = null, dead = false, pendingTab = null;
-    function save() { UI.store.set('rec', { mode: S.mode, camId: S.camId, micId: S.micId, quality: S.quality, systemAudio: S.systemAudio, countdown: S.countdown, prompter: S.prompter, pip: S.pip, speed: S.speed, shape: S.shape, pos: S.pos }); UI.store.set('rec.cam', { shape: S.shape, pos: S.pos }); }
+    var cancelCount = null, quietSince = 0, unsub = null, dead = false, pendingTab = null, lastLight = 0;
+    function save() { UI.store.set('rec', { mode: S.mode, camId: S.camId, micId: S.micId, quality: S.quality, systemAudio: S.systemAudio, countdown: S.countdown, prompter: S.prompter, pip: S.pip, speed: S.speed, shape: S.shape, pos: S.pos, grid: S.grid, lookPrev: S.lookPrev }); UI.store.set('rec.cam', { shape: S.shape, pos: S.pos }); }
     function q(s) { return view.querySelector(s); }
 
     view.innerHTML = '<div class="ui-wrap"><div class="ui-skel" style="height:420px"></div></div>';
@@ -5114,6 +6230,7 @@
         '<div class="rc-layout"><section>' +
           '<div class="rc-stage" data-stage><video class="scr" data-scr muted playsinline hidden></video><video class="camfull" data-camfull muted playsinline hidden></video>' +
           '<div class="rc-ph" data-ph>' + phText() + '</div><video class="rc-bubble" data-bubble muted playsinline hidden></video>' +
+          '<canvas class="rc-lookcv" data-lookcv hidden></canvas><div class="rc-grid" data-gridov hidden><i></i><span class="head">Top of your head</span><span class="eyes">Eyes on this line</span></div>' +
           '<div class="rc-live" data-live hidden><i></i><span data-livet>0:00</span></div><div class="rc-count" data-count hidden></div></div>' +
           '<div class="rc-bar" data-bar></div>' +
           '<div data-prompt-wrap></div>' +
@@ -5141,6 +6258,7 @@
         '<label class="ui-field"><span>Microphone</span><select data-mic><option value="default">Default microphone</option><option value="">No microphone</option></select></label>' +
         '<div class="rc-mic"><span>Level</span><div class="vb-meter"><i data-meter></i></div><span data-micmsg></span></div>' +
         '<button class="ui-btn sm" data-allow>' + UI.icon('mic') + 'Allow camera &amp; mic</button></div>' +
+        (S.mode !== 'screen' ? studioHtml() : '') +
         (S.mode !== 'cam' ? '<label class="ui-check"><input type="checkbox" data-sys' + (S.systemAudio ? ' checked' : '') + '><span>Record the sound of the tab or screen too</span></label>' : '') +
         (S.mode === 'screen_cam' ? '<div><h3>Camera bubble</h3><div class="rc-row2"><div class="ui-seg">' + [['circle', '●'], ['rounded', '▢'], ['square', '■']].map(function (o) {
             return '<button data-shape="' + o[0] + '" class="' + (S.shape === o[0] ? 'on' : '') + '" aria-label="' + o[0] + '">' + o[1] + '</button>'; }).join('') + '</div>' +
@@ -5156,6 +6274,49 @@
         '<div class="rc-ext" data-extline>' + extLine() + '</div>' +
         '<div><h3>Add a file instead</h3><label class="ui-btn sm" style="cursor:pointer">' + UI.icon('upload') + 'Import a video file<input type="file" accept="video/*" data-import hidden></label>' +
         '<p class="ui-hint">A phone clip or an older recording becomes a take of this video.</p></div>';
+    }
+    /* ---- studio check: light meter, framing guide, look preview (the recording itself stays plain) */
+    function studioHtml() {
+      var def = UI.store.get('vb.look', null);
+      var opts = [['', 'No preview']].concat(def ? [['default', 'My default look']] : []).concat(VB.LOOKS.filter(function (l) { return l.key !== 'none'; }).map(function (l) { return [l.key, l.emoji + ' ' + l.name]; }));
+      return '<div class="rc-studio"><h3>Studio check</h3>' +
+        '<div class="rc-light" data-light><i></i><b data-lightmsg>Allow the camera to check your light</b><span class="bar" title="Light on your face"><b data-lightpos style="left:0" hidden></b></span></div>' +
+        '<ul class="rc-tips" data-lighttips></ul>' +
+        (S.mode === 'cam' ? '<label class="ui-check"><input type="checkbox" data-gridon' + (S.grid ? ' checked' : '') + '><span>Framing guide (eyes on the top line)</span></label>' : '') +
+        '<label class="ui-field"><span>Preview a look on your camera</span><select data-lookprev>' + opts.map(function (o) { return '<option value="' + o[0] + '"' + ((S.lookPrev || '') === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></label>' +
+        '<button class="ui-btn sm" data-lightfix>' + UI.icon('wand') + 'Fix my lighting for new videos</button>' +
+        '<p class="ui-hint" style="margin:0">The camera is recorded as it is. Looks are added in the editor (Look tab), so you can still change them.</p></div>';
+    }
+    function camVideo() {
+      var a = q('[data-camfull]'), b = q('[data-bubble]');
+      return [a, b].filter(function (v) { return v && v.srcObject && v.readyState >= 2 && v.videoWidth; })[0] || null;
+    }
+    function previewLook() {
+      if (S.lookPrev === 'default') { var d = UI.store.get('vb.look', null); return d ? VB.fullLook(Object.assign({}, d, { on: true })) : null; }
+      return S.lookPrev ? VB.fullLook({ on: true, lut: S.lookPrev, amt: 1 }) : null;
+    }
+    function studioTick(now) {
+      var cv = q('[data-lookcv]'), grid = q('[data-gridov]'), v = camVideo(), look = previewLook();
+      if (grid) grid.hidden = !(S.grid && S.mode === 'cam' && v);
+      if (cv) {
+        var show = !!(look && v && S.mode !== 'screen');
+        cv.hidden = !show;
+        if (show) {
+          cv.className = 'rc-lookcv ' + (S.mode === 'cam' ? 'full' : 'rc-bubble ' + S.shape + ' ' + S.pos);
+          var out = VB.gradeSource('rec', { img: v, w: v.videoWidth, h: v.videoHeight }, look, now / 1000);
+          if (cv.width !== out.w || cv.height !== out.h) { cv.width = out.w; cv.height = out.h; }
+          try { cv.getContext('2d').drawImage(out.img, 0, 0, cv.width, cv.height); } catch (e) { /* not ready */ }
+        }
+      }
+      if (!v || now - lastLight < 700) return;
+      lastLight = now;
+      var lc = VB.lightCheck(v), box = q('[data-light]'); if (!lc || !box) return;
+      box.className = 'rc-light ' + lc.level;
+      q('[data-lightmsg]').textContent = lc.msg;
+      var pos = q('[data-lightpos]'); pos.hidden = false; pos.style.left = Math.round(VB.clamp(lc.face, 0, 1) * 100) + '%';
+      var tips = q('[data-lighttips]'), html = lc.tips.slice(0, 2).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('');
+      if (tips.innerHTML !== html) tips.innerHTML = html;
+      VB.lastLight = lc;
     }
     function extLine() {
       var s = VB.ext.state;
@@ -5264,6 +6425,7 @@
           if (lv > 0.03) quietSince = 0; else if (!quietSince) quietSince = performance.now();
           var msg = q('[data-micmsg2]'); if (msg) { var quiet = quietSince && performance.now() - quietSince > 6000; msg.textContent = quiet ? 'Is your mic muted?' : ''; msg.className = quiet ? 'rc-warn' : ''; }
         }
+        if (state !== 'review') studioTick(performance.now());
         raf = requestAnimationFrame(tick);
       })();
     }
@@ -5447,6 +6609,16 @@
     view.addEventListener('click', function (e) {
       var t = e.target, b;
       if ((b = t.closest('[data-act]'))) { act(b.getAttribute('data-act')); return; }
+      if (t.closest('[data-lightfix]')) {
+        var cv0 = camVideo();
+        if (!cv0) { UI.toast('Allow the camera first, then try again.'); return; }
+        var fix = VB.lookAuto(cv0); if (!fix) return;
+        var base = UI.store.get('vb.look', null) || {}, nl = VB.fullLook(Object.assign({}, base, fix, { on: true }));
+        if (fix.light) nl.light = Object.assign({}, VB.fullLook(base).light, fix.light);
+        UI.store.set('vb.look', nl); S.lookPrev = 'default'; save(); drawPanel(); refreshDevices();
+        UI.toast('Saved as your default look: new videos start with it. The preview shows it now.', 'ok');
+        return;
+      }
       if ((b = t.closest('[data-mode]'))) { if (state !== 'idle') return; S.mode = b.getAttribute('data-mode'); save(); resetRecorder(); drawPanel(); drawBar(); applyBubble(); refreshDevices(); return; }
       if ((b = t.closest('[data-shape]'))) { S.shape = b.getAttribute('data-shape'); save(); drawPanel(); applyBubble(); refreshDevices(); return; }
       if ((b = t.closest('[data-pos]'))) { S.pos = b.getAttribute('data-pos'); save(); drawPanel(); applyBubble(); refreshDevices(); return; }
@@ -5488,6 +6660,8 @@
       if (t.matches('[data-sys]')) { S.systemAudio = t.checked; save(); if (R) R.opts.systemAudio = S.systemAudio; return; }
       if (t.matches('[data-prompton]')) { S.prompter = t.checked; save(); drawPrompt(); return; }
       if (t.matches('[data-pipon]')) { S.pip = t.checked; save(); return; }
+      if (t.matches('[data-gridon]')) { S.grid = t.checked; save(); return; }
+      if (t.matches('[data-lookprev]')) { S.lookPrev = t.value; save(); return; }
       if (t.matches('[data-import]')) importFile(t.files[0]);
     });
     function onKey(e) {

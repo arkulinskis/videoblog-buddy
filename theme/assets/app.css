@@ -1135,7 +1135,7 @@ anvil-dropzone { display: contents; }
 :where(.anvil-label) { font: inherit; color: inherit; }
 :where(.anvil-label > .anvil-label-text) { font: inherit; color: inherit; }
 .anvil-component-icon:empty { display: none; }
-.ui .anvil-label { margin: 0; }
+:where(.ui) .anvil-label { margin: 0; }
 .anvil-role-st-inline, .anvil-role-st-inline > .anvil-label-text { display: inline; }
 .anvil-role-strong { font-weight: 700; }
 .anvil-role-small-text { font-size: .875rem; }
@@ -1249,7 +1249,7 @@ anvil-dropzone { display: contents; }
 .ui .anvil-role-ep-color input { width: 48px; min-height: 34px; padding: 2px; }
 
 /* planner */
-.pl-h2 { font: 700 1.05rem/1.2 var(--font-display); margin: 0 0 10px; }
+.ui .pl-h2 { font: 700 1.05rem/1.2 var(--font-display); margin: 0 0 10px; }
 .anvil-role-pl-filters > div { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
 .pl-chip { border: 1px solid var(--c-line-2); background: var(--c-surface); border-radius: var(--radius-sm); padding: 7px 11px; font: 500 .85rem/1 var(--font-body); cursor: pointer; color: var(--c-ink); display: inline-flex; gap: 6px; align-items: center; }
 .pl-chip i { width: 9px; height: 9px; border-radius: 2px; }
@@ -1342,3 +1342,18 @@ anvil-dropzone { display: contents; }
 .pp-bar .anvil-role-btn > button, .pp-bar a.ui-btn { background: #262626; color: #eee; border-color: #3a3a3a; min-height: 38px; }
 .pp-bar .anvil-role-btn-primary > button { background: #e62117; border-color: #e62117; color: #fff; }
 @media (max-width: 720px) { .anvil-role-pp-title { display: none; } }
+
+/* fixes after the first screenshots */
+.st-actions { align-items: center; }
+.st-who > * { display: block; }
+.anvil-role-st-handle { display: block; }
+.anvil-role-st-handle > button { text-align: left; }
+.st-badge-host { display: flex; height: 100%; }
+.st-badge { flex: 1; }
+.ui .pl-due { color: var(--c-ink); }
+.pl-colh { min-height: 46px; }
+.anvil-role-pl-col-add > button { width: 30px; min-height: 30px; height: 30px; }
+.ui .anvil-role-pl-empty { margin: 8px 12px 12px; }
+.anvil-role-st-handle { text-align: left; }
+.ex-cols code { overflow-wrap: anywhere; }
+@media (max-width: 860px) { .ex-get { grid-column: 1 / -1; justify-items: start; } }

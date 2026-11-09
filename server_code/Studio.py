@@ -364,7 +364,7 @@ def video_remix(video_id, kind, clip=None):
             return C.fail("That's a lot of clips in one hour. Try again a bit later.")
     now = C.now()
     label = {"short": "Short", "reel": "Reel", "square": "Square"}.get(kind, "Copy")
-    title = C.text(clip.get("title"), 100) if src is not None else ""
+    title = C.text((clip or {}).get("title"), 100) if src is not None else ""
     title = title if len(title) >= 2 else C.text("%s (%s)" % (v["title"], label), 100)
     nv = app_tables.videos.add_row(owner=me, product=v["product"], title=title, kind=kind,
                                    status="recorded" if v["status"] in ("edited", "published") else v["status"], due=v["due"],

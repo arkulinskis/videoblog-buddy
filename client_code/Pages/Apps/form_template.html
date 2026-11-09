@@ -1,0 +1,50 @@
+<anvil-form layout="VideoBlog_Buddy.Layouts.Shell">
+  <anvil-block slot="content">
+    <div class="ui-wrap">
+      <div anvil:name="list_view">
+        <div class="ui-page-head">
+          <div><h1>Your apps</h1><p class="muted">What you're building. Each app's details fill in scripts, title cards, ideas and YouTube descriptions.</p></div>
+          <anvil-component type="Button" name="add_button" prop:text="Add an app" prop:role='["btn", "btn-primary", "ic-plus"]'></anvil-component>
+        </div>
+        <div class="ap-grid">
+          <anvil-component type="RepeatingPanel" name="apps_panel" prop:item_template="VideoBlog_Buddy.Items.AppCard" prop:role='["contents"]'></anvil-component>
+          <anvil-component type="Button" name="add_tile" prop:text="Add an app" prop:role='["ap-new", "ic-plus"]'></anvil-component>
+        </div>
+      </div>
+      <div anvil:name="detail_view">
+        <a class="ui-btn ghost sm ap-back" href="#apps"><i class="ic ic-back"></i>All apps</a>
+        <div class="ap-hero" anvil:name="hero">
+          <anvil-component type="Label" name="hero_emoji" prop:role='["ap-emo"]'></anvil-component>
+          <div class="ap-hero-text">
+            <anvil-component type="Label" name="hero_name" prop:role='["ap-hero-name"]'></anvil-component>
+            <anvil-component type="Label" name="hero_tagline" prop:role='["ap-hero-line"]'></anvil-component>
+            <a anvil:name="hero_url" class="ap-hero-url" href="#" target="_blank" rel="noopener"></a>
+          </div>
+          <div class="ui-row">
+            <anvil-component type="Button" name="edit_button" prop:text="Edit" prop:role='["btn", "ic-edit"]'></anvil-component>
+            <anvil-component type="Button" name="new_video_button" prop:text="New video" prop:role='["btn", "btn-primary", "ic-plus"]'></anvil-component>
+          </div>
+        </div>
+        <div class="ap-detail">
+          <section>
+            <anvil-component type="Label" name="videos_title" prop:role='["ap-h2"]'></anvil-component>
+            <anvil-component type="RepeatingPanel" name="videos_panel" prop:item_template="VideoBlog_Buddy.Items.VideoTile" prop:role='["ap-vids"]'></anvil-component>
+            <div class="ui-empty" anvil:name="no_videos"><i class="ic ic-video"></i><anvil-component type="Label" name="no_videos_title" prop:role='["ap-empty-title"]'></anvil-component><p>Start with an idea below.</p></div>
+            <anvil-component type="Label" name="ideas_title" prop:role='["ap-h2", "ap-ideas-h"]'></anvil-component>
+            <anvil-component type="RepeatingPanel" name="ideas_panel" prop:item_template="VideoBlog_Buddy.Items.IdeaCard" prop:role='["pl-idea-grid"]'></anvil-component>
+          </section>
+          <aside class="ap-side">
+            <div class="ui-card">
+              <h3>Pitch</h3>
+              <anvil-component type="Label" name="audience" prop:role='["small-text"]'></anvil-component>
+              <anvil-component type="Label" name="features" prop:role='["small-text", "ap-feats-text"]'></anvil-component>
+              <anvil-component type="Label" name="cta" prop:role='["small-text"]'></anvil-component>
+              <anvil-component type="Label" name="notes" prop:role='["fine-print"]'></anvil-component>
+            </div>
+            <anvil-component type="Button" name="delete_button" prop:text="Delete this app" prop:role='["btn", "btn-sm", "btn-danger", "ic-trash"]'></anvil-component>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </anvil-block>
+</anvil-form>

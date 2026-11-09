@@ -1,0 +1,21 @@
+<div class="ui pp-host">
+  <div class="pp-wrap">
+    <div class="pp-roll" anvil:dom-node="roll"></div>
+    <div class="pp-bar">
+      <a class="ui-btn sm" anvil:name="back_link" href="#home"><i class="ic ic-back"></i>Back</a>
+      <anvil-component type="Label" name="title_label" prop:role='["pp-title"]'></anvil-component>
+      <span class="grow"></span>
+      <anvil-component type="Button" name="toggle_button" prop:text="Scroll" prop:role='["btn", "btn-primary", "ic-play"]'></anvil-component>
+      <anvil-component type="Button" name="top_button" prop:text="Back to the top" prop:role='["btn", "btn-sm", "btn-icon", "ic-refresh"]'></anvil-component>
+      <span class="pp-cap">Speed</span>
+      <anvil-component type="Button" name="slower_button" prop:text="−" prop:tooltip="Slower" prop:role='["btn", "btn-sm"]'></anvil-component>
+      <anvil-component type="Label" name="speed_label" prop:role='["pp-val"]'></anvil-component>
+      <anvil-component type="Button" name="faster_button" prop:text="+" prop:tooltip="Faster" prop:role='["btn", "btn-sm"]'></anvil-component>
+      <span class="pp-cap">Size</span>
+      <anvil-component type="Button" name="smaller_button" prop:text="A−" prop:tooltip="Smaller text" prop:role='["btn", "btn-sm"]'></anvil-component>
+      <anvil-component type="Label" name="size_label" prop:role='["pp-val"]'></anvil-component>
+      <anvil-component type="Button" name="bigger_button" prop:text="A+" prop:tooltip="Bigger text" prop:role='["btn", "btn-sm"]'></anvil-component>
+      <anvil-component type="Button" name="mirror_button" prop:text="Mirror" prop:role='["btn", "btn-sm"]'></anvil-component>
+    </div>
+  </div>
+</div>

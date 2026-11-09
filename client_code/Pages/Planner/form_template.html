@@ -1,0 +1,57 @@
+<anvil-form layout="VideoBlog_Buddy.Layouts.Shell">
+  <anvil-block slot="content">
+    <div class="ui-wrap pl-page" anvil:name="page_box">
+      <div class="pl-head">
+        <div><h1>Planner</h1><p class="muted">Every video from idea to published. Drag cards along as they move.</p></div>
+        <div class="ui-row">
+          <div class="ui-seg" role="group" aria-label="View">
+            <button type="button" anvil:name="mode_board" data-mode="board" anvil:on-dom:click="self.mode_click"><i class="ic ic-kanban"></i>Board</button>
+            <button type="button" anvil:name="mode_cal" data-mode="calendar" anvil:on-dom:click="self.mode_click"><i class="ic ic-calendar"></i>Calendar</button>
+          </div>
+          <anvil-component type="Button" name="new_button" prop:text="New idea" prop:role='["btn", "btn-primary", "ic-plus"]'></anvil-component>
+        </div>
+      </div>
+      <anvil-component type="RepeatingPanel" name="filters_panel" prop:item_template="VideoBlog_Buddy.Items.FilterChip" prop:role='["pl-filters"]'></anvil-component>
+      <div anvil:name="next_box">
+        <h2 class="pl-h2">Coming up</h2>
+        <anvil-component type="RepeatingPanel" name="next_panel" prop:item_template="VideoBlog_Buddy.Items.DueCard" prop:role='["pl-next"]'></anvil-component>
+      </div>
+      <div anvil:name="board_view">
+        <div class="pl-phonetabs ui-seg" role="group" aria-label="Column">
+          <button type="button" data-col="idea" anvil:name="t_idea" anvil:on-dom:click="self.coltab_click">Idea</button>
+          <button type="button" data-col="script" anvil:name="t_script" anvil:on-dom:click="self.coltab_click">Script</button>
+          <button type="button" data-col="recorded" anvil:name="t_recorded" anvil:on-dom:click="self.coltab_click">Recorded</button>
+          <button type="button" data-col="edited" anvil:name="t_edited" anvil:on-dom:click="self.coltab_click">Edited</button>
+          <button type="button" data-col="published" anvil:name="t_published" anvil:on-dom:click="self.coltab_click">Published</button>
+        </div>
+        <anvil-component type="RepeatingPanel" name="columns_panel" prop:item_template="VideoBlog_Buddy.Items.PlanColumn" prop:role='["pl-board"]'></anvil-component>
+      </div>
+      <div anvil:name="cal_view">
+        <div class="pl-unsch" anvil:name="unsched_box">
+          <span class="small muted">Not scheduled (drag onto a day):</span>
+          <anvil-component type="RepeatingPanel" name="unsched_panel" prop:item_template="VideoBlog_Buddy.Items.CalEvent" prop:role='["contents"]'></anvil-component>
+          <anvil-component type="Label" name="unsched_more" prop:role='["fine-print"]'></anvil-component>
+        </div>
+        <div class="pl-cal">
+          <div class="pl-calh">
+            <anvil-component type="Button" name="prev_button" prop:text="Previous month" prop:role='["btn", "btn-ghost", "btn-icon", "btn-sm", "ic-back"]'></anvil-component>
+            <anvil-component type="Label" name="month_label" prop:role='["pl-month"]'></anvil-component>
+            <anvil-component type="Button" name="today_button" prop:text="Today" prop:role='["btn", "btn-sm"]'></anvil-component>
+            <anvil-component type="Button" name="next_button" prop:text="Next month" prop:role='["btn", "btn-ghost", "btn-icon", "btn-sm", "ic-arrow"]'></anvil-component>
+          </div>
+          <div class="pl-grid pl-dows" aria-hidden="true"><div class="pl-dow">Mon</div><div class="pl-dow">Tue</div><div class="pl-dow">Wed</div><div class="pl-dow">Thu</div><div class="pl-dow">Fri</div><div class="pl-dow">Sat</div><div class="pl-dow">Sun</div></div>
+          <anvil-component type="RepeatingPanel" name="days_panel" prop:item_template="VideoBlog_Buddy.Items.CalDay" prop:role='["pl-days"]'></anvil-component>
+        </div>
+        <p class="small muted pl-cal-note">Click an empty day to plan a video for it. Drag a video to another day to move its publish date.</p>
+      </div>
+      <section class="pl-ideas">
+        <div class="pl-ideas-head">
+          <h2>💡 Idea machine</h2><span class="muted small">Video ideas from your app's details, with a script ready.</span><span class="ui-spacer"></span>
+          <anvil-component type="DropDown" name="idea_app_dd" prop:role='["pl-idea-app"]'></anvil-component>
+        </div>
+        <anvil-component type="RepeatingPanel" name="ideas_panel" prop:item_template="VideoBlog_Buddy.Items.IdeaCard" prop:role='["pl-idea-grid"]'></anvil-component>
+        <div class="ui-empty" anvil:name="no_apps"><i class="ic ic-grid"></i><h3>Add an app first</h3><p>Tell VideoBlog Buddy what you're building, and it suggests videos about it.</p><a class="ui-btn primary" href="#apps"><i class="ic ic-plus"></i>Add an app</a></div>
+      </section>
+    </div>
+  </anvil-block>
+</anvil-form>

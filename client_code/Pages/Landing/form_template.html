@@ -1,0 +1,115 @@
+<anvil-form layout="VideoBlog_Buddy.Layouts.Shell">
+  <anvil-block slot="content">
+    <div class="lp">
+      <div class="lp-top">
+        <section class="lp-hero">
+          <div class="ui-wrap">
+            <div>
+              <h1>Record it. Edit it. <em>Broadcast</em> it.</h1>
+              <p class="lp-lead">For people who build apps: VideoBlog Buddy records your screen and camera in the browser, turns your takes into YouTube videos and vertical Shorts and Reels, and writes the title, description and chapters for you. Show the world what you're building.</p>
+              <div class="lp-cta" anvil:name="guest_cta">
+                <a class="ui-btn primary lg" href="#auth/signup">Start your channel, free <i class="ic ic-arrow"></i></a>
+                <a class="ui-btn lg" href="#auth">I have an account</a>
+              </div>
+              <div class="lp-cta" anvil:name="member_cta">
+                <a class="ui-btn primary lg" href="#home">Open your studio <i class="ic ic-arrow"></i></a>
+                <a class="ui-btn lg" href="#record"><i class="rec-dot lp-dot"></i>Record now</a>
+              </div>
+              <div class="lp-proof"><span><i class="ic ic-check"></i>Free</span><span><i class="ic ic-check"></i>Nothing to install</span><span><i class="ic ic-check"></i>Recordings never leave your computer</span></div>
+            </div>
+            <anvil-component type="VideoBlog_Buddy.Components.HeroPlayer" name="hero"></anvil-component>
+          </div>
+        </section>
+      </div>
+
+      <section class="lp-section ytf" id="watch">
+        <div class="ui-wrap">
+          <div class="ytf-in">
+            <div class="ytf-copy">
+              <h2>See VideoBlog Buddy in about a minute</h2>
+              <p>A short video tour of what VideoBlog Buddy does and how it works.</p>
+              <a class="ytf-link" href="https://www.youtube.com/watch?v=Olt2yMqA_TI" target="_blank" rel="noopener"><svg viewBox="0 0 28 20" width="20" height="14" aria-hidden="true"><rect width="28" height="20" rx="5" fill="#FF0033"/><path d="M11.2 5.8v8.4l7.3-4.2z" fill="#fff"/></svg>Watch on YouTube &#8599;</a>
+            </div>
+            <div>
+              <div class="ytf-frame" anvil:dom-node="yt_frame">
+                <button type="button" class="ytf-cover" anvil:dom-node="yt_cover" aria-label="Play the VideoBlog Buddy video (1:07)">
+                  <img src="_/theme/yt-cover.jpg" alt="" loading="lazy" decoding="async" width="960" height="540">
+                  <span class="ytf-play" aria-hidden="true"><svg viewBox="0 0 68 48" width="68" height="48"><path d="M66.5 7.7a8.5 8.5 0 0 0-6-6C55.3.3 34 .3 34 .3s-21.3 0-26.5 1.4a8.5 8.5 0 0 0-6 6C.1 13 .1 24 .1 24s0 11 1.4 16.3a8.5 8.5 0 0 0 6 6c5.2 1.4 26.5 1.4 26.5 1.4s21.3 0 26.5-1.4a8.5 8.5 0 0 0 6-6C67.9 35 67.9 24 67.9 24s0-11-1.4-16.3z" fill="#FF0033"/><path d="M45 24 27 14v20z" fill="#fff"/></svg></span>
+                  <span class="ytf-len">1:07</span>
+                </button>
+              </div>
+              <p class="ytf-note">The video loads from YouTube when you press play.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="lp-section" id="how">
+        <div class="ui-wrap">
+          <div class="lp-head"><h2>From idea to upload in one place</h2><p>No video skills needed. If you can click Record, you can make a channel.</p></div>
+          <div class="lp-steps">
+            <div class="ui-card lp-step"><h3>Record</h3><p class="muted">Your screen with your face in a bubble, or just the camera.</p><ul><li>Teleprompter that scrolls as you talk</li><li>Chapter markers with one key</li><li>Pause, retake, keep the best</li></ul></div>
+            <div class="ui-card lp-step"><h3>Edit</h3><p class="muted">Trim, cut the pauses, zoom where you clicked, edit by deleting words.</p><ul><li>Captions written on your computer</li><li>One click from 16:9 to 9:16</li><li>Free music made by the app</li></ul></div>
+            <div class="ui-card lp-step"><h3>Publish</h3><p class="muted">Export an MP4, then upload it to YouTube from here.</p><ul><li>Thumbnail maker, 1280×720</li><li>Description with chapters, tags, hashtags</li><li>A planner with a weekly goal</li></ul></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="lp-section lp-tight">
+        <div class="ui-wrap">
+          <div class="lp-head"><h2>Everything a screen recorder should do</h2><p>And the parts after recording that usually take all evening.</p></div>
+          <div class="lp-feats">
+            <div class="lp-feature"><i class="ic ic-record"></i><h3>Screen + camera bubble</h3><p>Record a tab, a window or the whole screen with your face in the corner. The camera is saved separately, so you can move or hide the bubble later.</p></div>
+            <div class="lp-feature"><i class="ic ic-scroll"></i><h3>Teleprompter</h3><p>Write the script once. It scrolls in the recorder and in a floating window that stays on top of the tab you're showing.</p></div>
+            <div class="lp-feature"><i class="ic ic-zoom"></i><h3>Zooms on your clicks</h3><p>With the browser extension, every click is remembered and the editor zooms in on it smoothly. Demos people can actually read.</p></div>
+            <div class="lp-feature"><i class="ic ic-scissors"></i><h3>Remove pauses</h3><p>One button finds the silences and cuts them, with a little air left around your words. Undo is always there.</p></div>
+            <div class="lp-feature"><i class="ic ic-text"></i><h3>Captions + edit by words</h3><p>Speech-to-text runs on your computer. Cut a sentence by selecting its words, remove every “um” in one click, download the .srt.</p></div>
+            <div class="lp-feature"><i class="ic ic-upload"></i><h3>Straight to YouTube</h3><p>Upload the video, thumbnail and captions to your channel from the publish kit: private, unlisted, public or scheduled.</p></div>
+            <div class="lp-feature"><i class="ic ic-wand"></i><h3>A writing partner</h3><p>Hook lab, a script check-up, release notes turned into a script, and ready prompts for your favourite AI chat.</p></div>
+            <div class="lp-feature"><i class="ic ic-phone"></i><h3>Shorts and Reels too</h3><p>Make a vertical version of any video: screen on top, you below, red progress bar. Same takes, no re-recording.</p></div>
+            <div class="lp-feature"><i class="ic ic-image"></i><h3>Thumbnail maker</h3><p>Big words, your face, a frame from the video. Five layouts, sized and compressed for YouTube.</p></div>
+            <div class="lp-feature"><i class="ic ic-rocket"></i><h3>Publish kit</h3><p>Title ideas, a description with chapters from your markers, tags, hashtags, a pinned comment and an upload checklist.</p></div>
+            <div class="lp-feature"><i class="ic ic-kanban"></i><h3>Planner per app</h3><p>Add the apps you're building. Get video ideas for each, with a script already written, and move them from idea to published.</p></div>
+            <div class="lp-feature"><i class="ic ic-lock"></i><h3>Private by design</h3><p>Videos are recorded, edited and exported on your computer. Only the plan and the words are saved to your account.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="lp-section lp-tight">
+        <div class="ui-wrap">
+          <div class="lp-head"><h2>Made for</h2></div>
+          <div class="lp-who">
+            <div class="ui-card"><h3>Indie makers</h3><p class="muted">Show your side project in 60 seconds and post it everywhere.</p></div>
+            <div class="ui-card"><h3>Small teams</h3><p class="muted">Release notes, tutorials and bug reports as videos your users watch.</p></div>
+            <div class="ui-card"><h3>Devlog creators</h3><p class="muted">Build in public: one take a day, edited in minutes.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="lp-section lp-tight">
+        <div class="ui-wrap">
+          <div class="lp-head"><h2>Questions</h2></div>
+          <div class="lp-faq">
+            <details><summary>Is it free?</summary><p>Yes. Recording, editing, exporting and the publish kit are free.</p></details>
+            <details><summary>Do I need to install anything?</summary><p>No. It works in Chrome, Edge, Firefox and Safari on a computer. The optional Chrome extension adds one-click tab recording and zooms on your clicks.</p></details>
+            <details><summary>Where are my videos stored?</summary><p>In your browser, on your computer. They are never uploaded to us. Your account keeps the plan: titles, scripts, edit decisions and descriptions. Download finished videos to keep them safe.</p></details>
+            <details><summary>Does it upload to YouTube for me?</summary><p>Yes. Sign in with Google once and upload the video, its thumbnail and captions straight from the publish kit. For Instagram or TikTok, export the MP4 and paste the caption the app wrote.</p></details>
+            <details><summary>Are the captions sent to a server to be written?</summary><p>No. Speech recognition runs in your browser (the model downloads once). Only the words are saved with your take, like your script.</p></details>
+            <details><summary>Can I make Shorts and Reels?</summary><p>Yes. Pick 9:16 in the editor or press "Make a Short version" on any video. The screen goes on top and your camera below.</p></details>
+            <details><summary>Can I use it on my phone?</summary><p>You can plan, write scripts, use the full-screen teleprompter and record camera takes. Screen recording needs a computer.</p></details>
+            <details><summary>Where does the music come from?</summary><p>Pick one of the Buddy beats the app makes for you (free to use, even on monetized videos), or bring your own audio file you have the rights to use.</p></details>
+          </div>
+        </div>
+      </section>
+
+      <section class="lp-section">
+        <div class="ui-wrap">
+          <div class="lp-band">
+            <div><h2>Your next video is one click away</h2><p>Sign up, press Record, show what you built.</p></div>
+            <a class="ui-btn lg" anvil:name="band_link" href="#auth/signup">Start your channel, free</a>
+          </div>
+        </div>
+      </section>
+    </div>
+  </anvil-block>
+</anvil-form>

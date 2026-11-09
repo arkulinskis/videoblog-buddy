@@ -1,0 +1,14 @@
+<div class="ap-card-host">
+  <a class="ap-card" anvil:name="link" href="#apps">
+    <div class="ap-band" anvil:name="band"><anvil-component type="Label" name="emoji" prop:role='["ap-emo"]'></anvil-component></div>
+    <div class="ap-body">
+      <anvil-component type="Label" name="name" prop:role='["ap-name"]' bind:text="self.item['name']"></anvil-component>
+      <anvil-component type="Label" name="tagline" prop:role='["ap-line"]'></anvil-component>
+      <div class="ap-stats">
+        <anvil-component type="Label" name="videos" prop:role='["st-inline"]'></anvil-component>
+        <anvil-component type="Label" name="published" prop:role='["st-inline"]'></anvil-component>
+        <anvil-component type="Label" name="url" prop:role='["st-inline", "ap-url"]'></anvil-component>
+      </div>
+    </div>
+  </a>
+</div>

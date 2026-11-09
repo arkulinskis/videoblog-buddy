@@ -1,0 +1,67 @@
+<anvil-form layout="VideoBlog_Buddy.Layouts.Shell">
+  <anvil-block slot="content">
+    <div class="ui-wrap">
+      <div class="ex-hero">
+        <span class="pz"><i class="ic ic-puzzle"></i></span>
+        <div>
+          <h1>VideoBlog Buddy for Chrome</h1>
+          <p>Optional. The app records fine without it. With it, your demos look a lot more pro.</p>
+          <div class="ex-status">
+            <anvil-component type="Label" name="status_badge" prop:role='["badge"]' prop:text="Looking for it…"></anvil-component>
+            <anvil-component type="Label" name="status_hint" prop:role='["fine-print"]'></anvil-component>
+            <anvil-component type="Button" name="test_button" prop:text="Test the connection" prop:visible="false" prop:role='["btn", "btn-sm"]'></anvil-component>
+          </div>
+        </div>
+        <div class="ex-get" anvil:name="store_get">
+          <a class="ui-btn primary lg" anvil:name="store_link" href="#" target="_blank" rel="noopener"><i class="ic ic-puzzle"></i>Add to Chrome: it's free</a>
+          <a class="small muted" href="_/theme/videoblog-buddy-extension.zip" download="videoblog-buddy-extension.zip">or download the zip</a>
+        </div>
+        <div class="ex-get" anvil:name="zip_get">
+          <a class="ui-btn primary lg" href="_/theme/videoblog-buddy-extension.zip" download="videoblog-buddy-extension.zip"><i class="ic ic-download"></i>Download the extension</a>
+        </div>
+      </div>
+      <div class="ex-feats">
+        <div class="ex-feat"><i class="ic ic-record"></i><h3>One-click tab recording</h3><p>On the tab you want to show, click the extension and press Record this tab. No picker, no hunting for the right tab.</p></div>
+        <div class="ex-feat"><i class="ic ic-zoom"></i><h3>Your clicks become zooms</h3><p>Every click in the recorded tab is saved with its position, and the editor zooms in on it smoothly, like the pros do.</p></div>
+        <div class="ex-feat"><i class="ic ic-cursor"></i><h3>Click rings + key badges</h3><p>A red ring where you click and a badge for shortcuts like Ctrl+K, right on the page, so viewers can follow.</p></div>
+        <div class="ex-feat"><i class="ic ic-pen"></i><h3>Draw on the page</h3><p>Alt+Shift+D, then drag to circle things on any website. The ink fades after a few seconds.</p></div>
+        <div class="ex-feat"><i class="ic ic-keyboard"></i><h3>Shortcuts from any tab</h3><p>Alt+Shift+R stops, Alt+Shift+P pauses, Alt+Shift+M drops a chapter marker, without switching tabs.</p></div>
+        <div class="ex-feat"><i class="ic ic-lock"></i><h3>Private by design</h3><p>It only talks to this site after you connect it, only while you record, and never sends what you type.</p></div>
+      </div>
+      <div class="ex-cols">
+        <div class="ui-card">
+          <h2 class="ex-h2">Install (Chrome, Edge, Brave, Arc, Opera)</h2>
+          <ol class="ex-steps" anvil:name="store_steps">
+            <li>Press <b>Add to Chrome</b> above, then <b>Add extension</b> in the Chrome Web Store.</li>
+            <li>Pin it: click the puzzle piece in the toolbar, then the pin next to VideoBlog Buddy.</li>
+            <li>Come back to this page, click the red VideoBlog Buddy icon and press <b>Connect this site</b>.</li>
+          </ol>
+          <ol class="ex-steps" anvil:name="zip_steps">
+            <li><b>Download</b> the extension (button above) and <b>unzip</b> it. You get a folder called <code>videoblog-buddy-extension</code>.</li>
+            <li>Open <code>chrome://extensions</code> (Edge: <code>edge://extensions</code>) and switch on <b>Developer mode</b> (top right).</li>
+            <li>Click <b>Load unpacked</b> and choose the unzipped folder.</li>
+            <li>Pin it: click the puzzle piece in the toolbar, then the pin next to VideoBlog Buddy.</li>
+            <li>Come back to this page, click the red VideoBlog Buddy icon and press <b>Connect this site</b>.</li>
+          </ol>
+          <p class="small muted ex-note">Firefox and Safari: the app records without the extension (choose a tab in the browser's share dialog). Click zooms and one-click recording need a Chromium browser.</p>
+        </div>
+        <div class="ex-side">
+          <div class="ui-card">
+            <h3>Keyboard shortcuts</h3>
+            <div class="ex-keys">
+              <div><span>Stop recording</span><span><span class="vb-kbd">Alt</span>+<span class="vb-kbd">Shift</span>+<span class="vb-kbd">R</span></span></div>
+              <div><span>Pause / resume</span><span><span class="vb-kbd">Alt</span>+<span class="vb-kbd">Shift</span>+<span class="vb-kbd">P</span></span></div>
+              <div><span>Chapter marker</span><span><span class="vb-kbd">Alt</span>+<span class="vb-kbd">Shift</span>+<span class="vb-kbd">M</span></span></div>
+              <div><span>Draw on the page</span><span><span class="vb-kbd">Alt</span>+<span class="vb-kbd">Shift</span>+<span class="vb-kbd">D</span></span></div>
+            </div>
+            <p class="small muted ex-note">Change them at <code>chrome://extensions/shortcuts</code>.</p>
+          </div>
+          <div class="ui-card">
+            <h3>What it can see</h3>
+            <p class="small">It runs on the pages you visit so it can draw click rings there. While you record, it sends this site the <b>position</b> of each click (not what you clicked on), and shows shortcut keys on the page. It never reads or sends the letters you type, page content, or your history. Nothing goes anywhere but this site, and only after you connect it.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </anvil-block>
+</anvil-form>

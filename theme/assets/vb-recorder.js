@@ -329,7 +329,7 @@
       if (opts.script) VB.pip.prompter = VB.Prompter(d.querySelector('.pr'), opts.script, { speed: opts.speed || 32, fontSize: 13 });
       d.body.onclick = function (e) { var b = e.target.closest('[data-a]'); if (b && VB.pip.onAction) VB.pip.onAction(b.getAttribute('data-a')); };
       d.onkeydown = function (e) {
-        var k = e.key.toLowerCase();
+        var k = (e.key || '').toLowerCase();
         if (k === 'p' && VB.pip.onAction) VB.pip.onAction('pause');
         if (k === 'm' && VB.pip.onAction) VB.pip.onAction('mark');
         if (k === 's' && VB.pip.onAction) VB.pip.onAction('stop');

@@ -478,7 +478,7 @@
     });
     function onKey(e) {
       if (/INPUT|TEXTAREA|SELECT/.test((e.target.tagName || '')) || e.ctrlKey || e.metaKey || e.altKey) return;
-      var k = e.key.toLowerCase();
+      var k = (e.key || '').toLowerCase();
       if (k === 'm') act('mark'); else if (k === 'p') act('pause'); else if (k === 's') act('stop');
       else if (k === 'escape' && cancelCount) cancelCount();
     }
@@ -2246,14 +2246,14 @@
     function onKey(e) {
       if (document.querySelector('.ui-modal-wrap')) return;
       var tag = (e.target.tagName || ''), typing = /INPUT|TEXTAREA|SELECT/.test(tag) && e.target.type !== 'range' && e.target.type !== 'checkbox';
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { if (typing) return; e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { if (typing) return; e.preventDefault(); redo(); return; }
+      if ((e.ctrlKey || e.metaKey) && (e.key || '').toLowerCase() === 'z') { if (typing) return; e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+      if ((e.ctrlKey || e.metaKey) && (e.key || '').toLowerCase() === 'y') { if (typing) return; e.preventDefault(); redo(); return; }
       if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
       if ((e.key === 'Delete' || e.key === 'Backspace') && wsel && tab === 'words') { e.preventDefault(); var wc = q('[data-wcut]'); if (wc) wc.click(); return; }
       if (e.key === ' ') { e.preventDefault(); player.toggle(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); player.seek(Math.max(0, player.o - (e.shiftKey ? 5 : 1))); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); player.seek(player.o + (e.shiftKey ? 5 : 1)); }
-      else if (e.key.toLowerCase() === 's') split();
+      else if ((e.key || '').toLowerCase() === 's') split();
     }
     document.addEventListener('keydown', onKey);
     function onResize() { drawTrack(); }

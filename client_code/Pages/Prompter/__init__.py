@@ -61,7 +61,7 @@ class Prompter(PrompterTemplate):
     def _key(self, event):
         if self.engine is None:
             return
-        k = event.key
+        k = getattr(event, "key", None)
         if k == " ":
             event.preventDefault()
             self.toggle_button_click()

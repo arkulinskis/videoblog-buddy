@@ -1,0 +1,14 @@
+<div class="ui-item ad-tpl-row">
+  <anvil-component type="Label" name="emoji" prop:role='["ad-tpl-em"]'></anvil-component>
+  <div class="grow">
+    <div class="ui-row ad-tpl-name">
+      <anvil-component type="Label" name="name" prop:role='["strong"]' bind:text="self.item['name']"></anvil-component>
+      <anvil-component type="Label" name="featured" prop:text="Featured" prop:role='["badge", "badge-brand"]'></anvil-component>
+      <anvil-component type="Label" name="hidden" prop:text="Hidden" prop:role='["badge"]'></anvil-component>
+      <anvil-component type="Label" name="demo" prop:text="Demo" prop:role='["badge"]'></anvil-component>
+    </div>
+    <anvil-component type="Label" name="detail" prop:role='["fine-print"]'></anvil-component>
+  </div>
+  <anvil-component type="Button" name="edit_button" prop:text="Edit" prop:role='["btn", "btn-sm", "ic-edit"]'></anvil-component>
+  <anvil-component type="Button" name="delete_button" prop:text="Delete" prop:role='["btn", "btn-ghost", "btn-icon", "ic-trash"]'></anvil-component>
+</div>

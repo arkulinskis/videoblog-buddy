@@ -1,0 +1,106 @@
+<anvil-form layout="VideoBlog_Buddy.Layouts.Shell">
+  <anvil-block slot="content">
+    <div class="ui-wrap">
+      <div class="ui-page-head"><div><h1>Admin</h1><p class="muted">Only admins see this page.</p></div></div>
+      <nav class="ui-tabs">
+        <a href="#admin/overview" anvil:name="tab_overview"><i class="ic ic-grid"></i>Overview</a>
+        <a href="#admin/templates" anvil:name="tab_templates"><i class="ic ic-scroll"></i>Templates</a>
+        <a href="#admin/settings" anvil:name="tab_settings"><i class="ic ic-settings"></i>Settings</a>
+        <a href="#admin/feedback" anvil:name="tab_feedback"><i class="ic ic-inbox"></i>Feedback</a>
+        <a href="#admin/users" anvil:name="tab_users"><i class="ic ic-users"></i>Users</a>
+        <a href="#admin/demo" anvil:name="tab_demo"><i class="ic ic-database"></i>Demo data</a>
+      </nav>
+
+      <div anvil:name="overview_part">
+        <anvil-component type="RepeatingPanel" name="stats_panel" prop:item_template="VideoBlog_Buddy.Items.StatCard" prop:role='["ad-stats"]'></anvil-component>
+        <div class="ui-card ad-chart-card">
+          <h3>Last 14 days</h3>
+          <anvil-component type="RepeatingPanel" name="days_panel" prop:item_template="VideoBlog_Buddy.Items.DayBar" prop:role='["ad-chart"]'></anvil-component>
+          <div class="ad-key"><span><i class="ad-key-t"></i>Takes recorded</span><span><i class="ad-key-x"></i>Exports</span></div>
+        </div>
+        <anvil-component type="Label" name="demo_line" prop:role='["fine-print", "ad-demo-line"]'></anvil-component>
+      </div>
+
+      <div anvil:name="templates_part">
+        <div class="ui-row between ad-tpl-head">
+          <p class="muted">Script templates everyone sees next to the built-in ones. Placeholders: {app} {tagline} {audience} {feature1} {feature2} {feature3} {cta} {url} {handle}.</p>
+          <anvil-component type="Button" name="new_template_button" prop:text="New template" prop:role='["btn", "btn-primary", "ic-plus"]'></anvil-component>
+        </div>
+        <anvil-component type="RepeatingPanel" name="templates_panel" prop:item_template="VideoBlog_Buddy.Items.TemplateRow" prop:role='["ad-tpl"]'></anvil-component>
+        <div class="ui-empty" anvil:name="no_templates"><i class="ic ic-scroll"></i><h3>No templates yet</h3><p>The eight built-in templates are always there. Add your own here.</p></div>
+      </div>
+
+      <div anvil:name="settings_part">
+        <div class="ad-set">
+          <div class="ui-card">
+            <h2 class="ad-h2"><i class="ic ic-upload"></i> YouTube upload</h2>
+            <p class="muted small">With a Google OAuth client ID, members upload straight from the publish kit: video, thumbnail and captions. Each person signs in with their own Google account in a popup; the video goes from their browser to YouTube, never through this app.</p>
+            <label class="ui-field"><span>Google OAuth client ID</span>
+              <anvil-component type="TextBox" name="client_id_box" prop:placeholder="1234567890-abc123.apps.googleusercontent.com"></anvil-component>
+            </label>
+            <anvil-component type="Label" name="client_on" prop:text="Switched on" prop:visible="false" prop:role='["badge", "badge-good", "ad-on"]'></anvil-component>
+            <h3 class="ad-h3">Set it up (about 5 minutes)</h3>
+            <ol>
+              <li>Open <a class="vb-link" href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud console</a> and create a project, e.g. “VideoBlog Buddy”.</li>
+              <li>APIs &amp; Services → Library → <b>YouTube Data API v3</b> → <b>Enable</b>.</li>
+              <li>Google Auth Platform (OAuth consent screen): app name, your email, audience <b>External</b>. While it's in <b>Testing</b>, add each person who will upload as a <b>test user</b>.</li>
+              <li>Clients → Create client → <b>Web application</b>. Under <b>Authorized JavaScript origins</b> add <anvil-component type="Label" name="origin" prop:role='["ad-code"]'></anvil-component> (and any other address the app runs on).</li>
+              <li>Copy the <b>Client ID</b> (not the secret) into the box above and save.</li>
+            </ol>
+            <p class="small muted">Good to know: until Google audits the project, YouTube keeps videos uploaded through the API <b>private</b>; switch them to public in YouTube Studio (or ask for an audit with Google's YouTube API audit form). Custom thumbnails need a verified channel (youtube.com/verify). Each project gets about 6 uploads a day on the free quota.</p>
+          </div>
+          <div class="ui-card">
+            <h2 class="ad-h2"><i class="ic ic-puzzle"></i> Chrome Web Store</h2>
+            <p class="muted small">Once the extension is published, paste its store page here: the app then shows an <b>Add to Chrome</b> button instead of the zip download.</p>
+            <label class="ui-field"><span>Store page</span>
+              <anvil-component type="TextBox" name="store_box" prop:placeholder="https://chromewebstore.google.com/detail/videoblog-buddy/…"></anvil-component>
+            </label>
+            <p class="small muted">The listing text, the permission answers, the images and a store-ready zip are in the project folder: <code>extension/store/</code> (see <code>PUBLISH.md</code>).</p>
+            <div class="ui-row end">
+              <anvil-component type="Button" name="save_settings_button" prop:text="Save settings" prop:role='["btn", "btn-primary", "ic-check"]'></anvil-component>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div anvil:name="feedback_part">
+        <div class="ui-row ad-filter">
+          <div class="ui-seg">
+            <anvil-component type="Button" name="f_new" prop:text="New" prop:role='["seg"]'></anvil-component>
+            <anvil-component type="Button" name="f_read" prop:text="Read" prop:role='["seg"]'></anvil-component>
+            <anvil-component type="Button" name="f_done" prop:text="Done" prop:role='["seg"]'></anvil-component>
+            <anvil-component type="Button" name="f_all" prop:text="All" prop:role='["seg"]'></anvil-component>
+          </div>
+        </div>
+        <anvil-component type="RepeatingPanel" name="feedback_panel" prop:item_template="VideoBlog_Buddy.Items.FeedbackRow" prop:role='["ad-fb"]'></anvil-component>
+        <div class="ui-empty" anvil:name="no_feedback">
+          <i class="ic ic-inbox"></i>
+          <h2>No messages here</h2>
+          <p>New feedback goes to Prepsto (prepsto.com). Older messages and requests from the app show up here.</p>
+        </div>
+      </div>
+
+      <div anvil:name="users_part">
+        <div class="ui-row ad-search">
+          <anvil-component type="TextBox" name="search_box" prop:placeholder="Search by name or email" prop:role='["ad-search-box"]'></anvil-component>
+          <anvil-component type="Button" name="search_button" prop:text="Search" prop:role='["btn", "ic-search"]'></anvil-component>
+          <anvil-component type="Label" name="users_count" prop:role='["fine-print"]'></anvil-component>
+        </div>
+        <div class="ad-table ad-users-head"><b>Name</b><b>Email</b><b>Joined</b><b>Admin</b><b>Active</b></div>
+        <anvil-component type="RepeatingPanel" name="users_panel" prop:item_template="VideoBlog_Buddy.Items.UserRow"></anvil-component>
+      </div>
+
+      <div anvil:name="demo_part">
+        <div class="ui-card ui-narrow ad-demo">
+          <h3>Demo data</h3>
+          <p class="muted">Example people and content, so the app never looks empty for the first visitors. Demo rows are flagged, so removing them never touches real data. Once removed, it stays removed until you load it again.</p>
+          <anvil-component type="Label" name="demo_status"></anvil-component>
+          <div class="ui-row">
+            <anvil-component type="Button" name="demo_load_button" prop:text="Load demo data" prop:role='["btn", "btn-primary", "ic-refresh"]'></anvil-component>
+            <anvil-component type="Button" name="demo_remove_button" prop:text="Remove demo data" prop:role='["btn", "btn-danger", "ic-trash"]'></anvil-component>
+          </div>
+        </div>
+      </div>
+    </div>
+  </anvil-block>
+</anvil-form>

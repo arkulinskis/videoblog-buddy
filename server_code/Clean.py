@@ -46,6 +46,16 @@ MAX_WORDS = 12000
 MAX_SECONDS = 4 * 3600
 
 
+def _lst(x) -> list:
+    """x if it is a list, else an empty list (typed for Anvil's validator)."""
+    return x if isinstance(x, list) else []
+
+
+def _dct(x) -> dict:
+    """x if it is a dict, else an empty dict (typed for Anvil's validator)."""
+    return x if isinstance(x, dict) else {}
+
+
 def num(v, lo, hi, default=0.0, digits=3):
     try:
         f = float(v)
@@ -167,7 +177,7 @@ def words(v):
     """A take's transcript: {src, lang, words: [[start, end, word], ...]} (seconds of the take)."""
     v = v if isinstance(v, dict) else {}
     out = []
-    for w in (v.get("words") if isinstance(v.get("words"), list) else [])[:MAX_WORDS]:
+    for w in _lst(v.get("words"))[:MAX_WORDS]:
         if isinstance(w, (list, tuple)) and len(w) >= 3:
             word = s(w[2], 40)
             if not word:
@@ -183,8 +193,8 @@ def words(v):
 def look(v):
     """The colour look: a LUT (built in, or a .cube kept in the browser), light and colour fixes, key light, reframe."""
     v = v if isinstance(v, dict) else {}
-    light = v.get("light") if isinstance(v.get("light"), dict) else {}
-    crop = v.get("crop") if isinstance(v.get("crop"), dict) else {}
+    light = _dct(v.get("light"))
+    crop = _dct(v.get("crop"))
     out = {"on": bool(v.get("on")), "target": pick(v.get("target"), LOOK_TARGETS, "cam"), "lut": pick(v.get("lut"), LUTS, "none"),
            "amt": num(v.get("amt"), 0, 1, 1, 2), "cube": s(v.get("cube"), 60), "exposure": num(v.get("exposure"), -2, 2, 0, 2)}
     for k in ("contrast", "highlights", "shadows", "temp", "tint", "sat", "vib"):
@@ -239,7 +249,7 @@ def preset(kind, v):
     v = v if isinstance(v, dict) else {}
     if kind == "look":
         return look(dict(v, on=True))
-    raw = v.get("layers") if isinstance(v.get("layers"), list) else []
+    raw: list = _lst(v.get("layers"))
     return {"layers": [f for f in (frame(x, i, design_only=True) for i, x in enumerate(raw[:MAX_FRAMES])) if f]}
 
 
@@ -271,13 +281,13 @@ def edit(v, take_ids):
     """The editor's whole state for one video."""
     v = v if isinstance(v, dict) else {}
     scenes = []
-    for sc in (v.get("scenes") if isinstance(v.get("scenes"), list) else [])[:MAX_SCENES]:
+    for sc in _lst(v.get("scenes"))[:MAX_SCENES]:
         c = scene(sc, take_ids)
         if c:
             scenes.append(c)
-    music = v.get("music") if isinstance(v.get("music"), dict) else {}
-    zoom = v.get("zoom") if isinstance(v.get("zoom"), dict) else {}
-    sfx = v.get("sfx") if isinstance(v.get("sfx"), dict) else {}
+    music = _dct(v.get("music"))
+    zoom = _dct(v.get("zoom"))
+    sfx = _dct(v.get("sfx"))
     return {"v": 1, "aspect": pick(v.get("aspect"), ASPECTS, "16:9"), "layout": pick(v.get("layout"), LAYOUTS, "pip"),
             "bg": pick(v.get("bg"), BGS, "red"), "pad": num(v.get("pad"), 0, 0.16, 0.05), "radius": num(v.get("radius"), 0, 40, 14, 0),
             "cam": cam(v.get("cam")), "zoom": {"auto": zoom.get("auto") is not False, "level": num(zoom.get("level"), 1.2, 3, 1.7, 2)},
@@ -292,8 +302,8 @@ def edit(v, take_ids):
 
 def publish(v):
     v = v if isinstance(v, dict) else {}
-    titles = [s(t, 100) for t in (v.get("titles") if isinstance(v.get("titles"), list) else [])[:6] if s(t, 100)]
-    checks = v.get("checks") if isinstance(v.get("checks"), dict) else {}
+    titles = [s(t, 100) for t in _lst(v.get("titles"))[:6] if s(t, 100)]
+    checks = _dct(v.get("checks"))
     return {"title": s(v.get("title"), 100), "titles": titles, "description": s(v.get("description"), 5000, multiline=True),
             "tags": s(v.get("tags"), 500), "hashtags": s(v.get("hashtags"), 300), "pinned": s(v.get("pinned"), 1000, multiline=True),
             "caption": s(v.get("caption"), 2200, multiline=True),

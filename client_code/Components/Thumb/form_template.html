@@ -1,0 +1,20 @@
+---
+custom_component: true
+properties:
+  - name: video
+    type: object
+    default_value: null
+    description: "A video card from the server: title, thumb, product, status, duration"
+    default_binding_prop: true
+  - name: show_status
+    type: boolean
+    default_value: true
+    description: Show the status chip in the corner
+toolbox_item:
+  title: Video thumbnail
+  group: VideoBlog Buddy
+help_text: |
+  A video's library picture (16:9): the saved thumbnail, or a placeholder in its app's colour, with the status chip and
+  the length. Drawn by VB.thumbHtml (vb-core.js), the same picture the engine screens show.
+---
+<span class="vb-thumb-host"><span anvil:dom-node="host"></span></span>

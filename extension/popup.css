@@ -1,0 +1,31 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { width: 320px; font: 14px/1.45 Roboto, "Segoe UI", Arial, sans-serif; color: #222; background: #fff; }
+header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #e2e2e2; background: #f8f8f8; }
+.logo { font: 700 17px/1 "Roboto Condensed", Roboto, Arial, sans-serif; }
+.tube { background: linear-gradient(#e62117, #cc181e); color: #fff; border-radius: 5px; padding: 2px 5px; margin-left: 2px; }
+main { padding: 14px; display: grid; gap: 12px; }
+h2 { font-size: 15px; margin: 0; }
+p { margin: 0; }
+.muted { color: #666; font-size: 13px; }
+button { font: 600 14px/1.2 Roboto, Arial, sans-serif; border: 1px solid #d3d3d3; background: linear-gradient(#fdfdfd, #f1f1f1); color: #222; border-radius: 2px; padding: 9px 12px; cursor: pointer; }
+button:hover { border-color: #b9b9b9; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.primary { background: linear-gradient(#e62117, #cc181e); border-color: #cc181e; color: #fff; }
+button.big { width: 100%; padding: 13px; font-size: 16px; display: flex; gap: 8px; align-items: center; justify-content: center; }
+.dot { width: 12px; height: 12px; border-radius: 50%; background: #fff; display: inline-block; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; }
+.row button { flex: 1; }
+.live { display: flex; align-items: center; gap: 8px; font: 700 18px/1 Roboto, Arial; }
+.live i { width: 11px; height: 11px; border-radius: 50%; background: #e62117; animation: b 1s infinite; }
+.live.paused i { background: #999; animation: none; }
+@keyframes b { 50% { opacity: .3; } }
+label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; cursor: pointer; }
+label.opt input { accent-color: #cc181e; }
+.box { background: #f6f6f6; border: 1px solid #e2e2e2; border-radius: 4px; padding: 10px; display: grid; gap: 8px; }
+.sites { display: grid; gap: 4px; font-size: 12px; color: #444; }
+.sites div { display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+.sites button { padding: 2px 6px; font-size: 11px; }
+.err { background: #fbe6e4; color: #b3261e; padding: 8px 10px; border-radius: 3px; font-size: 13px; }
+footer { display: flex; justify-content: space-between; padding: 8px 14px; border-top: 1px solid #e2e2e2; font-size: 12px; color: #888; }
+footer a { color: #167ac6; text-decoration: none; }

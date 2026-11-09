@@ -15,7 +15,7 @@ PRODUCT = {"name": "Pocket Garden", "emoji": "\U0001F331", "color": "#2e9d5b", "
            "features": "Watering reminders for every plant\nLog growth with a photo a week\nShare one garden with your household",
            "cta": "Try it free", "notes": "Sample app. Edit it or delete it, and add your own apps."}
 
-TAKES = {
+TAKES: dict = {
     "garden": {"label": "Screen tour", "mode": "screen_cam", "duration": 40.0,
                "main": {"w": 1280, "h": 720, "type": "sample", "surface": "sample", "audio": True},
                "cam": {"w": 640, "h": 480, "type": "sample", "surface": "sample", "audio": False},

@@ -1,0 +1,144 @@
+<!doctype html>
+<!-- Chrome Web Store images for the VideoBlog Buddy extension. tools/store_assets.py captures the app into raw/*.png and
+     renders each slide here (?s=<id>, sized exactly) into extension/store/*.png. Edit the words or layout here. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&family=Roboto+Condensed:wght@700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; overflow: hidden; background: #fff; font-family: Roboto, Arial, sans-serif; color: #222; }
+.slide { display: none; position: relative; overflow: hidden; }
+.slide.on { display: block; }
+.s { width: 1280px; height: 800px; }
+.small { width: 440px; height: 280px; }
+.marquee { width: 1400px; height: 560px; }
+.red { background: radial-gradient(circle at 15% 10%, #ff3b2f 0, #cc181e 45%, #8f0d12 100%); color: #fff; }
+.paper { background: #f1f1f1; }
+.logo { display: inline-flex; align-items: center; gap: 10px; font: 700 30px/1 "Roboto Condensed", Roboto, Arial; }
+.logo img { width: 44px; height: 44px; border-radius: 10px; }
+.tube { background: linear-gradient(#e62117, #cc181e); color: #fff; border-radius: 7px; padding: 3px 9px; }
+.red .tube { background: #fff; color: #cc181e; }
+h1 { font: 900 60px/1.04 Roboto, Arial; margin: 0; letter-spacing: -.02em; }
+h1 em { font-style: normal; color: #cc181e; }
+.red h1 em { color: #ffde00; }
+.lead { font-size: 23px; line-height: 1.45; margin: 22px 0 0; color: #555; }
+.red .lead { color: rgba(255, 255, 255, .88); }
+.copy { position: absolute; left: 70px; top: 0; bottom: 0; width: 410px; display: flex; flex-direction: column; justify-content: center; }
+.copy .logo { margin-bottom: 34px; font-size: 24px; }
+.copy .logo img { width: 36px; height: 36px; }
+.frame { position: absolute; border-radius: 12px; overflow: hidden; box-shadow: 0 30px 70px rgba(0, 0, 0, .28), 0 0 0 1px rgba(0, 0, 0, .08); background: #fff; }
+.frame .bar { height: 38px; background: #e9e9e9; display: flex; align-items: center; gap: 7px; padding: 0 14px; }
+.frame .bar i { width: 11px; height: 11px; border-radius: 50%; background: #c9c9c9; }
+.frame .bar b { margin-left: 14px; flex: 1; height: 22px; border-radius: 11px; background: #fff; font: 500 12px/22px Roboto; color: #777; padding: 0 12px; }
+.frame .bar .ext { width: 22px; height: 22px; border-radius: 5px; background: #cc181e; flex: none; display: grid; place-items: center; }
+.frame .bar .ext img { width: 16px; height: 16px; }
+.frame.bare .shot { height: 100%; }
+.frame .shot { display: block; width: 100%; height: calc(100% - 38px); object-fit: cover; object-position: top left; }
+.right { left: 520px; top: 100px; width: 720px; height: 600px; }
+.popup { position: absolute; width: 320px; background: #fff; border-radius: 10px; box-shadow: 0 24px 60px rgba(0, 0, 0, .35), 0 0 0 1px rgba(0, 0, 0, .1); overflow: hidden; color: #222; font-size: 14px; }
+.popup header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #e2e2e2; background: #f8f8f8; font: 700 17px/1 "Roboto Condensed", Roboto; }
+.popup header img { width: 24px; height: 24px; }
+.popup header .tube { font-size: 15px; padding: 2px 5px; border-radius: 5px; background: linear-gradient(#e62117, #cc181e); color: #fff; }
+.popup main { padding: 14px; display: grid; gap: 12px; }
+.popup .big { background: linear-gradient(#e62117, #cc181e); color: #fff; border-radius: 3px; padding: 13px; font: 700 16px/1 Roboto; display: flex; gap: 8px; justify-content: center; align-items: center; }
+.popup .big span { width: 12px; height: 12px; border-radius: 50%; background: #fff; }
+.popup .muted { color: #666; font-size: 13px; line-height: 1.45; margin: 0; }
+.popup .box { background: #f6f6f6; border: 1px solid #e2e2e2; border-radius: 4px; padding: 10px; display: grid; gap: 7px; font-size: 13px; }
+.popup .box label { display: flex; gap: 8px; align-items: center; }
+.popup .box input { accent-color: #cc181e; }
+.ring { position: absolute; border-radius: 50%; border: 5px solid #e62117; box-shadow: 0 0 0 7px rgba(230, 33, 23, .22); }
+.key { position: absolute; background: rgba(20, 20, 20, .88); color: #fff; font: 700 30px/1 Roboto; padding: 14px 20px; border-radius: 10px; display: flex; gap: 10px; align-items: center; box-shadow: 0 10px 30px rgba(0, 0, 0, .3); }
+.key kbd { font: inherit; background: #fff; color: #222; border-radius: 6px; padding: 6px 12px; box-shadow: 0 3px 0 #bbb; }
+.chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+.chips span { background: #fff; border: 1px solid #ddd; border-radius: 20px; padding: 8px 14px; font: 500 16px/1 Roboto; color: #333; }
+.red .chips span { background: rgba(255, 255, 255, .15); border-color: rgba(255, 255, 255, .3); color: #fff; }
+.points { display: grid; gap: 22px; margin-top: 30px; }
+.points div { display: grid; grid-template-columns: 54px 1fr; gap: 16px; align-items: center; font-size: 21px; line-height: 1.35; }
+.points b { display: block; font-size: 23px; }
+.points i { width: 54px; height: 54px; border-radius: 14px; background: #fde8e7; display: grid; place-items: center; font-style: normal; font-size: 28px; }
+</style>
+</head>
+<body>
+
+<!-- 1: one-click tab recording -->
+<section class="slide s paper" id="s1">
+  <div class="copy"><span class="logo"><img src="../icons/icon-128.png" alt="">VideoBlog<span class="tube">Buddy</span></span>
+    <h1>Record any tab in <em>one click</em></h1>
+    <p class="lead">Open the tab you want to show, click the red icon, press Record. Your camera and voice come along.</p>
+    <div class="chips"><span>No tab picker</span><span>Camera bubble</span><span>Teleprompter</span></div></div>
+  <div class="frame bare" style="left:520px;top:220px;width:720px;height:405px"><img class="shot" src="raw/garden.png" alt=""></div>
+  <div class="popup" style="left:930px;top:110px"><header><img src="../icons/icon-32.png" alt="">VideoBlog<span class="tube">Buddy</span></header>
+    <main><div class="big"><span></span>Record this tab</div><p class="muted">Your camera and mic come from the studio. Alt+Shift+R stops from any tab.</p>
+      <div class="box"><label><input type="checkbox" checked>Red ring where I click</label><label><input type="checkbox" checked>Show shortcut keys (never what I type)</label></div></main></div>
+</section>
+
+<!-- 2: clicks become zooms -->
+<section class="slide s red" id="s2">
+  <div class="copy"><span class="logo"><img src="../icons/icon-128.png" alt="">VideoBlog<span class="tube">Buddy</span></span>
+    <h1>Your clicks become <em>smooth zooms</em></h1>
+    <p class="lead">Every click is saved with its position. The editor zooms in on it automatically, like the pros do.</p></div>
+  <div class="frame" style="left:520px;top:178px;width:720px;height:443px"><div class="bar"><i></i><i></i><i></i><b>Your exported video</b></div><img class="shot" src="raw/zoom.png" alt=""></div>
+  <div class="ring" style="left:876px;top:428px;width:62px;height:62px;opacity:.9"></div>
+</section>
+
+<!-- 3: click rings, keys, pen -->
+<section class="slide s paper" id="s3">
+  <div class="copy"><span class="logo"><img src="../icons/icon-128.png" alt="">VideoBlog<span class="tube">Buddy</span></span>
+    <h1>Viewers see <em>where you click</em></h1>
+    <p class="lead">A red ring on every click, a badge for shortcuts like Ctrl+K, and a pen to circle things (Alt+Shift+D).</p></div>
+  <div class="frame right"><div class="bar"><i></i><i></i><i></i><b>videoblog-buddy.anvil.app</b><span class="ext"><img src="../icons/icon-32.png" alt=""></span></div><img class="shot" src="raw/studio.png" alt=""></div>
+  <div class="ring" style="left:1082px;top:254px;width:64px;height:64px"></div>
+  <div class="key" style="left:720px;top:590px"><kbd>Ctrl</kbd>+<kbd>K</kbd></div>
+  <svg style="position:absolute;left:515px;top:322px" width="380" height="190" viewBox="0 0 420 200" preserveAspectRatio="none"><path d="M40 110 C 30 40, 210 10, 330 40 S 410 150, 260 170 S 30 175, 60 90" fill="none" stroke="#e62117" stroke-width="7" stroke-linecap="round" opacity=".9"/></svg>
+</section>
+
+<!-- 4: captions, Shorts, YouTube -->
+<section class="slide s paper" id="s4">
+  <div class="copy"><span class="logo"><img src="../icons/icon-128.png" alt="">VideoBlog<span class="tube">Buddy</span></span>
+    <h1>Edit by words, <em>post anywhere</em></h1>
+    <p class="lead">Captions written on your computer, “um”s removed in one click, Shorts in 9:16, and upload to YouTube.</p>
+    <div class="chips"><span>Captions</span><span>Remove pauses</span><span>Shorts &amp; Reels</span><span>YouTube upload</span></div></div>
+  <div class="frame right"><div class="bar"><i></i><i></i><i></i><b>VideoBlog Buddy · Editor</b></div><img class="shot" src="raw/words.png" alt=""></div>
+</section>
+
+<!-- 5: private by design -->
+<section class="slide s paper" id="s5">
+  <div class="copy" style="width:560px"><span class="logo"><img src="../icons/icon-128.png" alt="">VideoBlog<span class="tube">Buddy</span></span>
+    <h1>Private <em>by design</em></h1>
+    <div class="points">
+      <div><i>🔌</i><span><b>Only your studio</b>It talks to the VideoBlog Buddy site you connect, nothing else.</span></div>
+      <div><i>⌨️</i><span><b>Never what you type</b>Click positions while recording. No keystrokes, no page content.</span></div>
+      <div><i>💻</i><span><b>Recordings stay on your computer</b>Nothing is uploaded unless you choose to post it.</span></div>
+    </div></div>
+  <div class="popup" style="left:860px;top:200px;width:340px"><header><img src="../icons/icon-32.png" alt="">VideoBlog<span class="tube">Buddy</span></header>
+    <main><p style="margin:0;font:700 15px Roboto">Connected sites</p><div class="box"><label>✓ videoblog-buddy.anvil.app</label></div>
+      <div class="box"><label><input type="checkbox" checked>Red ring where I click</label><label><input type="checkbox" checked>Show shortcut keys (never what I type)</label></div></main></div>
+</section>
+
+<!-- small promo tile 440x280 -->
+<section class="slide small red" id="small">
+  <div style="position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 34px">
+    <span class="logo" style="font-size:30px"><img src="../icons/icon-128.png" alt="" style="width:52px;height:52px;box-shadow:0 6px 18px rgba(0,0,0,.25)">VideoBlog<span class="tube">Buddy</span></span>
+    <p style="font:900 30px/1.1 Roboto;margin:22px 0 0">Record. Zoom.<br><span style="color:#ffde00">Publish.</span></p>
+    <p style="margin:10px 0 0;font-size:15px;opacity:.9">Screen videos for YouTube and Shorts</p></div>
+</section>
+
+<!-- marquee 1400x560 -->
+<section class="slide marquee red" id="marquee">
+  <div class="copy" style="left:70px;width:500px"><span class="logo"><img src="../icons/icon-128.png" alt="">VideoBlog<span class="tube">Buddy</span></span>
+    <h1 style="font-size:56px">Show off the apps <em>you build</em></h1>
+    <p class="lead" style="font-size:21px">One-click tab recording, zooms on your clicks, captions and YouTube upload.</p></div>
+  <div class="frame" style="left:640px;top:60px;width:700px;height:450px"><div class="bar"><i></i><i></i><i></i><b>VideoBlog Buddy · Editor</b></div><img class="shot" src="raw/words.png" alt=""></div>
+</section>
+
+<script>
+  var id = new URLSearchParams(location.search).get('s') || 's1';
+  document.getElementById(id).classList.add('on');
+  window.ARTREADY = false;
+  Promise.all([document.fonts ? document.fonts.ready : 0].concat(Array.prototype.map.call(document.images, function (i) {
+    return i.complete ? 0 : new Promise(function (r) { i.onload = i.onerror = r; });
+  }))).then(function () { window.ARTREADY = true; });
+</script>
+</body>
+</html>

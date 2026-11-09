@@ -1,0 +1,99 @@
+<anvil-form layout="VideoBlog_Buddy.Layouts.Shell">
+  <anvil-block slot="content">
+    <div class="st-page">
+      <div class="st-banner"><anvil-component type="Label" name="banner_title" prop:role='["st-banner-title"]'></anvil-component></div>
+      <div class="ui-wrap st-wrap">
+        <div class="st-chan">
+          <div class="st-ava"><anvil-component type="Label" name="initials" prop:role='["st-initials"]'></anvil-component></div>
+          <div class="st-who">
+            <anvil-component type="Label" name="name_title" prop:role='["st-name"]'></anvil-component>
+            <anvil-component type="Button" name="handle_button" prop:text="Set your @handle" prop:role='["st-handle"]'></anvil-component>
+            <div class="st-stats">
+              <span><anvil-component type="Label" name="s_videos" prop:role='["st-num"]'></anvil-component> videos</span>
+              <span><anvil-component type="Label" name="s_published" prop:role='["st-num"]'></anvil-component> published</span>
+              <span><anvil-component type="Label" name="s_minutes" prop:role='["st-num"]'></anvil-component> min recorded</span>
+              <span><anvil-component type="Label" name="s_exports" prop:role='["st-num"]'></anvil-component> exports</span>
+            </div>
+          </div>
+          <div class="st-actions">
+            <a class="ui-btn primary" href="#record"><i class="rec-dot"></i>Record</a>
+            <anvil-component type="Button" name="new_button" prop:text="New video" prop:role='["btn", "ic-plus"]'></anvil-component>
+          </div>
+        </div>
+        <anvil-component type="RepeatingPanel" name="rescue_panel" prop:item_template="VideoBlog_Buddy.Items.RescueRow"></anvil-component>
+        <div class="st-layout">
+          <section>
+            <div class="st-tabsline">
+              <div class="st-bar">
+                <nav class="ui-tabs" aria-label="Which videos">
+                  <button type="button" data-filter="all" anvil:name="f_all" anvil:on-dom:click="self.filter_click">All videos</button>
+                  <button type="button" data-filter="todo" anvil:name="f_todo" anvil:on-dom:click="self.filter_click">Ideas &amp; scripts</button>
+                  <button type="button" data-filter="wip" anvil:name="f_wip" anvil:on-dom:click="self.filter_click">In progress</button>
+                  <button type="button" data-filter="published" anvil:name="f_published" anvil:on-dom:click="self.filter_click">Published</button>
+                </nav>
+                <anvil-component type="DropDown" name="app_filter" prop:role='["st-app-filter"]'></anvil-component>
+                <anvil-component type="TextBox" name="search_box" prop:placeholder="Search videos" prop:role='["st-search"]'></anvil-component>
+              </div>
+            </div>
+            <anvil-component type="RepeatingPanel" name="grid" prop:item_template="VideoBlog_Buddy.Items.VideoCard" prop:role='["st-grid"]'></anvil-component>
+            <div class="ui-empty" anvil:name="no_match"><i class="ic ic-search"></i><h3>No videos here</h3><p>Try another filter.</p></div>
+            <div class="ui-empty st-hero-empty" anvil:name="empty_state">
+              <i class="ic ic-video"></i><h3>Your channel starts here</h3><p>Record your screen and camera, or plan your first video.</p>
+              <div class="ui-row st-center">
+                <a class="ui-btn primary" href="#record"><i class="rec-dot"></i>Record</a>
+                <anvil-component type="Button" name="sample_button" prop:text="Add the sample project" prop:role='["btn", "ic-sparkle"]'></anvil-component>
+              </div>
+            </div>
+          </section>
+          <aside class="st-side">
+            <div class="ui-card">
+              <h3>🎯 Weekly goal</h3>
+              <div class="st-goal" anvil:name="goal_box">
+                <svg width="68" height="68" viewBox="0 0 68 68" aria-hidden="true"><circle cx="34" cy="34" r="26" fill="none" stroke="var(--c-line)" stroke-width="7"/><circle anvil:dom-node="goal_ring" cx="34" cy="34" r="26" fill="none" stroke="var(--c-brand)" stroke-width="7" stroke-linecap="round" stroke-dasharray="0 163.4" transform="rotate(-90 34 34)"/><text anvil:dom-node="goal_count" x="34" y="39" text-anchor="middle" font-size="15" font-weight="700" fill="currentColor">0/0</text></svg>
+                <div><anvil-component type="Label" name="goal_text" prop:role='["strong"]'></anvil-component><anvil-component type="Label" name="goal_sub" prop:role='["fine-print"]'></anvil-component></div>
+              </div>
+              <p class="small muted st-goal-intro" anvil:name="goal_intro">Publishing on a rhythm grows a channel. How many videos a week?</p>
+              <div class="ui-seg st-goal-seg" role="group" aria-label="Videos a week">
+                <button type="button" data-goal="1" anvil:name="g1" anvil:on-dom:click="self.goal_click">1</button>
+                <button type="button" data-goal="2" anvil:name="g2" anvil:on-dom:click="self.goal_click">2</button>
+                <button type="button" data-goal="3" anvil:name="g3" anvil:on-dom:click="self.goal_click">3</button>
+                <button type="button" data-goal="5" anvil:name="g5" anvil:on-dom:click="self.goal_click">5</button>
+                <button type="button" data-goal="0" anvil:name="g0" anvil:on-dom:click="self.goal_click">Off</button>
+              </div>
+            </div>
+            <div class="ui-card">
+              <h3><i class="ic ic-star"></i>Achievements</h3>
+              <anvil-component type="RepeatingPanel" name="badges_panel" prop:item_template="VideoBlog_Buddy.Items.BadgeTile" prop:role='["st-badges"]'></anvil-component>
+              <anvil-component type="Label" name="badge_summary" prop:role='["fine-print", "st-badge-sum"]'></anvil-component>
+            </div>
+            <div class="ui-card">
+              <h3><i class="ic ic-hdd"></i>On this computer</h3>
+              <anvil-component type="Label" name="storage_line" prop:text="Checking…" prop:role='["st-storage"]'></anvil-component>
+              <div class="vb-meter st-meter" anvil:name="meter"><i anvil:dom-node="meter_fill"></i></div>
+              <p class="small muted st-storage-note">Your recordings stay in this browser and are never uploaded. Download finished videos to keep them.</p>
+              <div class="ui-row">
+                <anvil-component type="Button" name="persist_button" prop:text="Keep them safe" prop:visible="false" prop:role='["btn", "btn-sm", "ic-lock"]'></anvil-component>
+                <anvil-component type="Label" name="protected_badge" prop:text="Protected" prop:visible="false" prop:role='["badge", "badge-good"]'></anvil-component>
+                <anvil-component type="Button" name="files_button" prop:text="Manage files" prop:visible="false" prop:role='["btn", "btn-sm", "btn-ghost"]'></anvil-component>
+              </div>
+            </div>
+            <div class="ui-card">
+              <h3><i class="ic ic-puzzle"></i>Browser extension</h3>
+              <p class="small st-ext"><anvil-component type="Label" name="ext_badge" prop:visible="false" prop:role='["badge"]'></anvil-component> <anvil-component type="Label" name="ext_text" prop:text="Looking for it…" prop:role='["st-inline"]'></anvil-component></p>
+              <div class="ui-row">
+                <a class="ui-btn sm primary" anvil:name="ext_store" href="#" target="_blank" rel="noopener"><i class="ic ic-puzzle"></i>Add to Chrome</a>
+                <a class="ui-btn sm" href="#extension" anvil:name="ext_link">What it does</a>
+              </div>
+            </div>
+            <div class="ui-card">
+              <h3><i class="ic ic-grid"></i>Your apps</h3>
+              <anvil-component type="RepeatingPanel" name="apps_panel" prop:item_template="VideoBlog_Buddy.Items.SideApp" prop:role='["st-apps"]'></anvil-component>
+              <p class="small muted" anvil:name="no_apps">Add the apps you're building: scripts and descriptions fill themselves in.</p>
+              <a class="ui-btn sm st-manage" href="#apps"><i class="ic ic-plus"></i>Manage apps</a>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </anvil-block>
+</anvil-form>

@@ -1,0 +1,15 @@
+---
+custom_component: true
+properties:
+  - name: screen
+    type: string
+    default_value: ""
+    description: Which engine screen to show (record, video or edit in theme/assets/vb-screens.js)
+toolbox_item:
+  title: Engine screen
+  group: VideoBlog Buddy
+help_text: |
+  One of VideoBlog Buddy's JavaScript screens (the recorder, the video hub, the editor), mounted when the component
+  appears and destroyed (the screen saves and releases the camera) when it leaves. Call mount(args) with the address parts.
+---
+<div class="vb-screen-host"><div anvil:dom-node="host"></div></div>

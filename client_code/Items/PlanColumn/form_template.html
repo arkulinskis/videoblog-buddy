@@ -1,0 +1,15 @@
+<div class="pl-col-host">
+  <section class="pl-col" anvil:name="col">
+    <div class="pl-colh">
+      <i class="ic" anvil:name="icon"></i>
+      <anvil-component type="Label" name="label" prop:role='["pl-col-label"]' bind:text="self.item['label']"></anvil-component>
+      <anvil-component type="Label" name="count" prop:role='["pl-col-n"]'></anvil-component>
+      <anvil-component type="Button" name="add_button" prop:text="Add" prop:role='["btn", "btn-ghost", "btn-icon", "btn-sm", "ic-plus", "pl-col-add"]'></anvil-component>
+    </div>
+    <div class="pl-quick" anvil:name="quick">
+      <anvil-component type="TextBox" name="quick_box" prop:placeholder="Quick idea… (press Enter)"></anvil-component>
+    </div>
+    <anvil-component type="RepeatingPanel" name="cards_panel" prop:item_template="VideoBlog_Buddy.Items.PlanCard" prop:role='["pl-cards"]'></anvil-component>
+    <anvil-component type="Label" name="empty" prop:text="Nothing here." prop:role='["fine-print", "pl-empty"]'></anvil-component>
+  </section>
+</div>

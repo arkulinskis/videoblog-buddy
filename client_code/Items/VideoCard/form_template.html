@@ -1,0 +1,11 @@
+<div class="st-card-host">
+  <article class="st-card">
+    <a class="th" anvil:name="th_link" href="#home" tabindex="-1" aria-hidden="true"><anvil-component type="VideoBlog_Buddy.Components.Thumb" name="thumb"></anvil-component></a>
+    <div class="meta">
+      <a class="t" anvil:name="title_link" href="#home"><anvil-component type="Label" name="title" prop:role='["st-title"]' bind:text="self.item['title']"></anvil-component></a>
+      <div class="sub"><anvil-component type="VideoBlog_Buddy.Components.AppChip" name="chip"></anvil-component><anvil-component type="Label" name="kind_label" prop:role='["st-inline"]'></anvil-component></div>
+      <div class="sub"><anvil-component type="Label" name="when" prop:role='["st-inline"]'></anvil-component><anvil-component type="Label" name="sample_badge" prop:text="Sample" prop:role='["badge", "st-sample"]'></anvil-component></div>
+    </div>
+    <anvil-component type="Button" name="more_button" prop:text="More actions" prop:role='["btn", "btn-ghost", "btn-icon", "btn-sm", "ic-more", "st-more"]'></anvil-component>
+  </article>
+</div>

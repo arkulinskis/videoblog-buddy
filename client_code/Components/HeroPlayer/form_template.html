@@ -1,0 +1,28 @@
+---
+custom_component: true
+properties: []
+toolbox_item:
+  title: Hero player
+  group: VideoBlog Buddy
+help_text: |
+  The landing page's classic watch page: the sample tour (Pocket Garden) rendered live on a canvas by the real video
+  engine (VB.heroPlayer in vb-screens.js), on a loop, no sound. One still frame when the visitor prefers reduced motion.
+---
+<div class="lp-watch" aria-label="A video made with VideoBlog Buddy">
+  <div class="bar"><span class="vb-logo">VideoBlog<span class="tube">Buddy</span></span><span class="srch">Search</span></div>
+  <div class="grid">
+    <div>
+      <canvas anvil:dom-node="canvas" width="960" height="540" aria-label="The sample video playing"></canvas>
+      <div class="prog"><i anvil:dom-node="prog"></i></div>
+      <div class="meta"><b>Pocket Garden in 40 seconds</b>
+        <div class="chan"><span class="av">🌱</span><span>Pocket Garden<br>1,204 views</span><span class="sub">SUBSCRIBE</span></div>
+      </div>
+    </div>
+    <div class="side" aria-hidden="true">
+      <div class="it"><div class="th th-red">BUG OF THE WEEK<span>3:12</span></div><div class="ln"></div><div class="ln s"></div></div>
+      <div class="it"><div class="th th-blue">HOW I BUILT IT<span>8:45</span></div><div class="ln"></div><div class="ln s"></div></div>
+      <div class="it"><div class="th th-purple">3 TIPS<span>0:41</span></div><div class="ln"></div><div class="ln s"></div></div>
+      <div class="it"><div class="th th-orange">WHAT'S NEW<span>2:03</span></div><div class="ln"></div><div class="ln s"></div></div>
+    </div>
+  </div>
+</div>

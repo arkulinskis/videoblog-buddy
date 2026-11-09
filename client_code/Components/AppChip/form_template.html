@@ -1,0 +1,15 @@
+---
+custom_component: true
+properties:
+  - name: product
+    type: object
+    default_value: null
+    description: "The app a video is about ({name, emoji, color}), or None for No app"
+    default_binding_prop: true
+toolbox_item:
+  title: App chip
+  group: VideoBlog Buddy
+help_text: |
+  A small colour square + the app's name (VB.appChip), or "No app".
+---
+<span class="vb-chip-host"><span anvil:dom-node="host"></span></span>

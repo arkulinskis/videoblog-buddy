@@ -1,0 +1,6 @@
+<div class="ui files-dialog">
+  <h2 class="dlg-h">Recordings on this computer</h2>
+  <p class="muted small">Each recording is a screen (or camera) file, plus the camera file when the bubble was on. Deleting a file here doesn't delete the video from your library; it just isn't playable on this computer any more.</p>
+  <anvil-component type="RepeatingPanel" name="files_panel" prop:item_template="VideoBlog_Buddy.Items.FileRow" prop:role='["ui-list-panel"]'></anvil-component>
+  <anvil-component type="Label" name="empty" prop:text="No recordings on this computer." prop:visible="false" prop:role='["fine-print"]'></anvil-component>
+</div>

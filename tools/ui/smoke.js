@@ -100,12 +100,12 @@
     await signOut();
     say('ok   signed out');
 
-    // ---- the admin (arkulinskis@gmail.com becomes admin on first sign-in)
+    // ---- the admin (admin@example.com becomes admin on first sign-in)
     const pw = 'Vb-smoke-admin-Kq7-2026';
-    await signIn('arkulinskis@gmail.com', pw);
+    await signIn('admin@example.com', pw);
     await sleep(2500);
     if (location.hash !== '#home') {
-      await signUp('The Admin', 'arkulinskis@gmail.com', pw);
+      await signUp('The Admin', 'admin@example.com', pw);
     }
     await until(() => location.hash === '#home' && window.UI_READY, 'admin signed in', 45000);
     for (const t of ['overview', 'templates', 'settings', 'feedback', 'users', 'demo']) await visit('#admin/' + t);

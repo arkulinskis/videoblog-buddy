@@ -80,7 +80,7 @@ FAQ; the extension page (`#extension`); sign-up; feedback; Privacy & Terms.
   shortcut badges drawn on the page, clicks sent to the app for auto-zoom, drawing pen (Alt+Shift+D), shortcuts
   Alt+Shift+R/P/M from any tab, popup controls. It only talks to sites you connect in its popup.
 
-**For admins** (`#admin`; arkulinskis@gmail.com becomes an admin on first sign-in): overview (users, active, videos,
+**For admins** (`#admin`; your admin email (App Secret `admin_emails`) becomes an admin on first sign-in): overview (users, active, videos,
 takes, minutes, exports, vertical exports, apps, extension takes, captioned takes, YouTube uploads) + a 14-day chart,
 **script templates** (add, edit, feature, hide), **settings** (Google OAuth client ID for YouTube upload, with setup steps;
 the extension's Chrome Web Store page), feedback inbox, users, demo data (community templates by demo people).
@@ -90,7 +90,7 @@ the extension's Chrome Web Store page), feedback inbox, users, demo data (commun
 1. In the Anvil editor: **Create app → Clone from GitHub**, and paste `https://github.com/arkulinskis/videoblog-buddy`.
 2. **Users** service: email + password and "Continue with Google", sign-up allowed (already set in `anvil.yaml`; check it).
 3. Open the app in the editor. If it shows a **Schema Mismatch** alert, choose **"The schema of the source code is correct"** so Anvil creates the tables.
-4. **Run** it and sign up with **arkulinskis@gmail.com** straight away (that account becomes the admin).
+4. **Run** it and sign up with **your admin email** (App Secret `admin_emails`) straight away (that account becomes the admin).
 5. **Publish** (Publish → public URL, or your own domain).
 
 <!-- libraries:start -->

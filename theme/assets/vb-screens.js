@@ -143,6 +143,7 @@
         bar.innerHTML = '<span class="rc-timer" data-timer>' + VB.fmtTime(R ? R.t() : 0) + '</span>' +
           '<button class="ui-btn" data-act="pause">' + UI.icon(state === 'paused' ? 'play' : 'pause') + (state === 'paused' ? 'Resume' : 'Pause') + '</button>' +
           '<button class="ui-btn" data-act="mark" title="Chapter marker (M)">' + UI.icon('flag') + 'Marker</button>' +
+          '<button class="ui-btn" data-act="oops" title="Flubbed a line? Press O, say it again; the retake finder in the editor cuts the flub (O)">' + UI.icon('undo') + 'Oops</button>' +
           '<button class="ui-btn primary" data-act="stop">' + UI.icon('stop') + 'Stop</button>' +
           '<button class="ui-btn ghost sm" data-act="restart" title="Throw this take away and start again">' + UI.icon('refresh') + 'Restart</button>' +
           '<span class="grow"></span><div class="rc-mic"><div class="vb-meter"><i data-meter2></i></div><span data-micmsg2></span></div>';
@@ -154,7 +155,7 @@
       } else {
         bar.innerHTML = '<button class="ui-btn primary rc-big" data-act="record"' + (VB.canRecord() ? '' : ' disabled') + '><i class="rec-dot"></i>Record</button>' +
           (S.mode !== 'cam' ? '<button class="ui-btn" data-act="choose">' + UI.icon('monitor') + (R && R.display ? 'Change screen' : 'Choose screen') + '</button>' : '') +
-          '<span class="grow"></span><div class="rc-keys"><span><span class="vb-kbd">M</span> marker</span><span><span class="vb-kbd">P</span> pause</span><span><span class="vb-kbd">S</span> stop</span></div>' +
+          '<span class="grow"></span><div class="rc-keys"><span><span class="vb-kbd">M</span> marker</span><span><span class="vb-kbd">O</span> oops, again</span><span><span class="vb-kbd">P</span> pause</span><span><span class="vb-kbd">S</span> stop</span></div>' +
           (VB.canRecord() ? '' : '<p class="ui-error" style="width:100%">This browser can\'t record video. Use Chrome, Edge, Firefox or Safari.</p>');
       }
     }
@@ -316,6 +317,8 @@
         drawBar();
       } else if (a === 'mark') {
         var m = R.mark('chapter'); if (m) flash('⚑ ' + m[2] + ' at ' + VB.fmtTime(m[0]));
+      } else if (a === 'oops') {
+        var mo = R.mark('oops', 'Oops'); if (mo) { flash('↺ Oops marked. Say it again'); VB.pip.update({ message: 'Oops marked at ' + VB.fmtTime(mo[0]) + '. Say it again.' }); setTimeout(function () { VB.pip.update({ message: '' }); }, 1600); }
       } else if (a === 'stop') stop();
       else if (a === 'restart') {
         UI.confirm({ title: 'Throw this take away and start again?', ok: 'Restart', danger: true }).then(function (yes) {
@@ -479,7 +482,7 @@
     function onKey(e) {
       if (/INPUT|TEXTAREA|SELECT/.test((e.target.tagName || '')) || e.ctrlKey || e.metaKey || e.altKey) return;
       var k = (e.key || '').toLowerCase();
-      if (k === 'm') act('mark'); else if (k === 'p') act('pause'); else if (k === 's') act('stop');
+      if (k === 'm') act('mark'); else if (k === 'o') act('oops'); else if (k === 'p') act('pause'); else if (k === 's') act('stop');
       else if (k === 'escape' && cancelCount) cancelCount();
     }
     document.addEventListener('keydown', onKey);
@@ -908,7 +911,7 @@
       var tk = usable.filter(function (t) { return t.id === d.take; })[0];
       b.innerHTML = '<div class="vd-thumb"><div><canvas data-tc width="1280" height="720"></canvas><div class="ui-row" style="margin-top:12px">' +
         '<button class="ui-btn primary" data-tsave>' + UI.icon('check') + 'Use as the video\'s thumbnail</button><button class="ui-btn" data-tdl>' + UI.icon('download') + 'Download JPG (1280×720)</button></div>' +
-        '<p class="small muted">YouTube wants 1280×720 and under 2 MB: this download is both. Big face, few words, high contrast.</p></div>' +
+        '<p class="small muted">YouTube wants 1280×720 and under 2 MB: this download is both. Big face, few words, high contrast.</p>' + feedShell() + '</div>' +
         '<form class="ui-card vd-tctl" data-tform style="padding:16px"><div class="ui-field"><span>Layout</span><div class="ui-choices">' + VB.THUMB_TPLS.map(function (t) {
           return '<label class="ui-choice"><input type="radio" name="tpl" value="' + t[0] + '"' + (d.tpl === t[0] ? ' checked' : '') + '><span>' + t[1] + '</span></label>'; }).join('') + '</div></div>' +
         '<label class="ui-field"><span>Big words</span><input type="text" name="text" maxlength="60" value="' + esc(d.text) + '"></label>' +
@@ -921,7 +924,70 @@
         '<label class="ui-check"><input type="checkbox" name="arrow"' + (d.arrow ? ' checked' : '') + '><span>Big red arrow</span></label></form></div>';
       frames = null;
       grab(d).then(function () { renderThumb(); });
+      if (!feed.others) UI.apiQuiet('planner_get').then(function (r) { feed.others = (r.videos || []).filter(function (x) { return x.id !== id && x.thumb; }).slice(0, 2); drawFeed(); }, function () { feed.others = []; });
     }
+
+    /* ---------------- feed test (2026-11-20): the thumbnail + title where people decide to click (YouTube home on a
+       phone, search, up next), at real sizes, light or dark, among other videos. Nothing is saved unless asked. */
+    var feed = { mode: UI.store.get('vd.feed', 'home'), dark: null, title: null, others: null };
+    var FEED_FAKES = [
+      { title: 'I built a SaaS in a weekend with no code (honest results)', ch: 'Build Daily', views: '214K views', ago: '3 days ago', dur: '12:41', bg: ['#2b5876', '#4e4376'], emoji: '⚡' },
+      { title: 'Stop making these 7 landing page mistakes', ch: 'Indie Hacker TV', views: '89K views', ago: '1 week ago', dur: '9:05', bg: ['#f7971e', '#e44d26'], emoji: '🚫' },
+      { title: 'My app made $1,000 this month: everything I did', ch: 'Solo Founder', views: '41K views', ago: '2 weeks ago', dur: '15:22', bg: ['#11998e', '#38ef7d'], emoji: '💸' }];
+    function feedTitle() { return feed.title != null ? feed.title : ((D.video.publish && D.video.publish.title) || D.video.title || ''); }
+    function feedShell() {
+      if (feed.dark == null) feed.dark = document.documentElement.classList.contains('ui-dark');
+      return '<section class="ui-card vd-feed" data-feed aria-label="Feed test"><div class="vd-fhead"><h3>Feed test</h3>' +
+        '<div class="ui-seg">' + [['home', 'Phone home'], ['search', 'Search'], ['next', 'Up next']].map(function (m) {
+          return '<button type="button" data-fmode="' + m[0] + '" class="' + (feed.mode === m[0] ? 'on' : '') + '">' + m[1] + '</button>'; }).join('') + '</div>' +
+        '<button type="button" class="ui-btn sm ghost" data-fdark aria-pressed="' + feed.dark + '">' + (feed.dark ? '☀ Light' : '☾ Dark') + '</button></div>' +
+        '<p class="small muted" style="margin:0">Your thumbnail and title next to other videos, at the size people really see them. Can you read it in a second?</p>' +
+        '<label class="ui-field"><span>Title to test <span class="muted" data-fcnt></span></span><input type="text" data-ftitle maxlength="100" value="' + esc(feedTitle()) + '"></label>' +
+        '<ul class="vd-fwarn" data-fwarn></ul><div class="vd-fstage" data-fstage></div>' +
+        '<div class="ui-row"><button type="button" class="ui-btn sm" data-fsave>' + UI.icon('check') + 'Use this title in the publish kit</button></div></section>';
+    }
+    function feedChecks(tl) {
+      var out = [], letters = tl.replace(/[^A-Za-z]/g, ''), caps = letters.replace(/[^A-Z]/g, '').length;
+      if (!tl.trim()) out.push(['bad', 'Give the video a title first.']);
+      if (tl.length > 50) out.push(['warn', 'Phones cut titles at about 50 characters. What people see: “' + tl.slice(0, 50).trim() + '…”. Put the hook words first.']);
+      if (tl.length > 70) out.push(['warn', 'Search on a computer cuts after about 70 characters too.']);
+      if (letters.length > 8 && caps / letters.length > 0.6) out.push(['warn', 'All caps reads as shouting. Capitalise one or two words instead.']);
+      if (tl.trim() && tl.length < 20) out.push(['tip', 'Short is fine, but say what the viewer gets (“How I…”, “in 5 minutes”).']);
+      if (!out.length) out.push(['good', 'Fits on a phone without being cut.']);
+      return out;
+    }
+    function drawFeed() {
+      var box = q('[data-feed]'), c = q('[data-tc]'); if (!box || !c) return;
+      var tl = feedTitle(), img = VB.smallJpeg(c, 480, 0.82), p = product() || {}, mine = {
+        title: tl || 'Untitled video', ch: D.handle ? '@' + String(D.handle).replace(/^@/, '') : (p.name || 'Your channel'), views: 'New', ago: 'just now',
+        dur: D.video.duration ? VB.fmtTime(D.video.duration) : '', img: img, emoji: p.emoji || '', color: p.color || '#cc181e', me: true };
+      var others = (feed.others || []).map(function (v) { return { title: v.title, ch: mine.ch, views: 'Your video', ago: '', dur: v.duration ? VB.fmtTime(v.duration) : '', img: v.thumb, emoji: mine.emoji, color: mine.color }; });
+      var list = others.concat(FEED_FAKES).slice(0, 3); list.splice(1, 0, mine);
+      function pic(v) {
+        var face = v.img ? '<img src="' + esc(v.img) + '" alt="">' : '<span class="fk" style="background:linear-gradient(135deg,' + v.bg[0] + ',' + v.bg[1] + ')">' + v.emoji + '</span>';
+        return '<div class="th">' + face + (v.dur ? '<span class="du">' + esc(v.dur) + '</span>' : '') + '</div>';
+      }
+      function av(v) { return '<span class="av" style="background:' + esc(v.color || (v.bg && v.bg[0]) || '#888') + '">' + esc(v.emoji || (v.ch || '?').replace('@', '').charAt(0).toUpperCase()) + '</span>'; }
+      function when(v) { return esc(v.views) + (v.ago ? ' · ' + esc(v.ago) : ''); }
+      var html;
+      if (feed.mode === 'search') {
+        html = list.map(function (v) {
+          return '<div class="sr' + (v.me ? ' me' : '') + '">' + pic(v) + '<div class="tx"><b class="tt">' + esc(v.title) + '</b><span class="mt">' + when(v) + '</span>' +
+            '<span class="mt ch">' + av(v) + esc(v.ch) + '</span></div></div>'; }).join('');
+      } else if (feed.mode === 'next') {
+        html = list.map(function (v) {
+          return '<div class="un' + (v.me ? ' me' : '') + '">' + pic(v) + '<div class="tx"><b class="tt">' + esc(v.title) + '</b><span class="mt">' + esc(v.ch) + '</span><span class="mt">' + when(v) + '</span></div></div>'; }).join('');
+      } else {
+        html = '<div class="ph">' + list.map(function (v) {
+          return '<div class="hm' + (v.me ? ' me' : '') + '">' + pic(v) + '<div class="rw">' + av(v) + '<div class="tx"><b class="tt">' + esc(v.title) + '</b><span class="mt">' + esc(v.ch) + ' · ' + when(v) + '</span></div></div></div>'; }).join('') + '</div>';
+      }
+      var st = box.querySelector('[data-fstage]');
+      st.className = 'vd-fstage m-' + feed.mode + (feed.dark ? ' dk' : '');
+      st.innerHTML = html;
+      box.querySelector('[data-fwarn]').innerHTML = feedChecks(tl).map(function (w) { return '<li class="' + w[0] + '">' + esc(w[1]) + '</li>'; }).join('');
+      box.querySelector('[data-fcnt]').textContent = tl.length + '/100';
+    }
+    var drawFeedSoon = VB.debounce(drawFeed, 250);
     function thumbDesign() {
       var f = q('[data-tform]'); if (!f) return {};
       var v = UI.formData(f); v.t = +v.t || 0; return v;
@@ -934,7 +1000,7 @@
     function renderThumb() {
       var c = q('[data-tc]'); if (!c) return;
       if (document.fonts && document.fonts.load) document.fonts.load('400 40px Anton').then(draw2, draw2); else draw2();
-      function draw2() { VB.drawThumb(c.getContext('2d'), 1280, 720, thumbDesign(), frames, product()); }
+      function draw2() { VB.drawThumb(c.getContext('2d'), 1280, 720, thumbDesign(), frames, product()); drawFeedSoon(); }
     }
     var regrab = VB.debounce(function () { grab(thumbDesign()).then(renderThumb); }, 250);
 
@@ -1012,6 +1078,14 @@
         });
         return;
       }
+      if ((b = t.closest('[data-fmode]'))) { feed.mode = b.getAttribute('data-fmode'); UI.store.set('vd.feed', feed.mode); view.querySelectorAll('[data-fmode]').forEach(function (x) { x.classList.toggle('on', x === b); }); drawFeed(); return; }
+      if ((b = t.closest('[data-fdark]'))) { feed.dark = !feed.dark; b.textContent = feed.dark ? '☀ Light' : '☾ Dark'; b.setAttribute('aria-pressed', String(feed.dark)); drawFeed(); return; }
+      if ((b = t.closest('[data-fsave]'))) {
+        var ft = feedTitle().trim();
+        if (!ft) { UI.toast('Type a title first'); return; }
+        UI.busy(b, patch({ publish: Object.assign({}, D.video.publish || {}, { title: ft.slice(0, 100) }) })).then(function () { UI.toast('Saved as the YouTube title in the publish kit', 'ok'); });
+        return;
+      }
       if (t.closest('[data-tdl]')) {
         var c2 = q('[data-tc]');
         (function tryQ(qv) {
@@ -1066,6 +1140,7 @@
         if (c) { c.textContent = t.value.length + '/' + max; c.classList.toggle('over', t.value.length >= max); }
         savePub(); return;
       }
+      if (t.matches('[data-ftitle]')) { feed.title = t.value; drawFeedSoon(); return; }
       if (t.closest('[data-tform]')) {
         if (t.name === 't') { var tt = q('[data-tt]'); if (tt) tt.textContent = VB.fmtTime(+t.value); regrab(); return; }
         renderThumb();
@@ -1093,7 +1168,52 @@
   UI.page('edit', { title: 'Editor', auth: 'user' }, function (view, ctx) {
     var id = ctx.args[0], D = null, E = null, plan = null, srcs = {}, player = null, bar = null, sel = 0, tab = 'scene', dead = false;
     var hist = [], fut = [], dirty = false, saving = false, envs = {}, trackSel = null, cutSel = null, zoomSel = -1, music = null, fileMusic = null;
-    var asr = null, wsel = null, lastNow = -1, presets = [], frameSel = -1;
+    var asr = null, wsel = null, lastNow = -1, presets = [], frameSel = -1, retakes = null;
+    /* Platform check + safe zones (2026-11-20): where Shorts / Reels / TikTok draw their buttons over a 9:16 video
+       (approximate, from the platforms' 2025-26 layouts), drawn over the preview only, never into the export.
+       Rects are [x, y, w, h, label] as parts of the frame. Length limits in seconds. */
+    var SAFE = {
+      shorts: { name: 'YouTube Shorts', max: 180, rects: [[0, 0, 1, 0.07, 'Search · menu'], [0.86, 0.42, 0.14, 0.36, 'Like · comments · share · remix'], [0, 0.78, 1, 0.22, 'Title · channel · Subscribe · sound']] },
+      reels: { name: 'Instagram Reels', max: 180, rects: [[0, 0, 1, 0.09, 'Reels · camera'], [0.86, 0.5, 0.14, 0.3, 'Like · comment · share'], [0, 0.8, 1, 0.2, 'Name · caption · audio']] },
+      tiktok: { name: 'TikTok', max: 600, rects: [[0, 0, 1, 0.1, 'Following · For You · search'], [0.85, 0.38, 0.15, 0.42, 'Profile · like · comment · save · share'], [0, 0.8, 1, 0.2, 'Name · caption · sound']] }
+    };
+    var safeZone = UI.store.get('ed.safe', 'off'), safeRO = null;
+    if (!SAFE[safeZone]) safeZone = 'off';
+    function placeSafe() {
+      var el = q('[data-safe]'), cv = q('[data-cv]'); if (!el || !cv) return;
+      var z = E && E.aspect === '9:16' && SAFE[safeZone];
+      el.hidden = !z; if (!z) return;
+      el.style.left = cv.offsetLeft + 'px'; el.style.top = cv.offsetTop + 'px'; el.style.width = cv.offsetWidth + 'px'; el.style.height = cv.offsetHeight + 'px';
+      el.innerHTML = z.rects.map(function (r) {
+        return '<i style="left:' + r[0] * 100 + '%;top:' + r[1] * 100 + '%;width:' + r[2] * 100 + '%;height:' + r[3] * 100 + '%"><span>' + esc(r[4]) + '</span></i>';
+      }).join('') + '<b>' + esc(z.name) + ' buttons · preview only</b>';
+    }
+    /* What the platform check finds: [level, text, fix-key or ''] */
+    function platformIssues() {
+      var out = [], dur = plan ? plan.outDur : 0;
+      Object.keys(SAFE).forEach(function (k) {
+        var z = SAFE[k];
+        if (dur > z.max) out.push(['bad', z.name + ' takes up to ' + VB.fmtTime(z.max) + '; this edit is ' + VB.fmtTime(dur) + '. Trim it or split it into parts.', '']);
+      });
+      if (E.captions.on && E.captions.pos === 'top') out.push(['warn', 'Captions at the top sit under the platforms\' top bar.', 'captions']);
+      var low = 0;
+      E.scenes.forEach(function (s) { (s.texts || []).forEach(function (x) { if ((x.pos || 'bl')[0] === 'b') low++; }); });
+      if (low) out.push(['warn', UI.plural(low, 'text overlay') + ' at the bottom, under the name and caption area.', 'texts']);
+      var lowF = (E.frames || []).filter(function (f) { return (f.pos || 'bl')[0] === 'b'; }).length;
+      if (lowF) out.push(['warn', UI.plural(lowF, 'newsroom frame') + ' at the bottom (lower third or ticker): the caption area covers ' + (lowF === 1 ? 'it' : 'them') + '.', 'frames']);
+      if (!out.length) out.push(['good', 'Length and placement fit all three. Turn on a platform above to see its buttons.', '']);
+      return out;
+    }
+    function platformBox() {
+      if (E.aspect !== '9:16') return '<div class="ed-plat"><h4>Platform check</h4><p class="small muted" style="margin:0">Switch Size to 9:16 to check Shorts, Reels and TikTok: length limits and where their buttons cover your video.</p></div>';
+      return '<div class="ed-plat"><h4>Platform check</h4><div class="ui-seg">' + [['off', 'Off'], ['shorts', 'Shorts'], ['reels', 'Reels'], ['tiktok', 'TikTok']].map(function (o) {
+          return '<button data-safe-set="' + o[0] + '" class="' + (safeZone === o[0] ? 'on' : '') + '" aria-pressed="' + (safeZone === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>' +
+        '<p class="small muted" style="margin:0">Shows each app\'s buttons over the preview (not in the export). Keep faces, captions and text out of the shaded parts.</p>' +
+        '<ul class="ed-pcheck">' + platformIssues().map(function (it) {
+          var fix = { captions: 'Move captions down', texts: 'Move them to the middle', frames: 'Move them to the top' }[it[2]];
+          return '<li class="' + it[0] + '"><span>' + esc(it[1]) + '</span>' + (fix ? '<button class="ui-btn sm" data-safe-fix="' + it[2] + '">' + fix + '</button>' : '') + '</li>';
+        }).join('') + '</ul></div>';
+    }
     view.innerHTML = '<div class="ui-wrap"><div class="ui-skel" style="height:460px"></div></div>';
     function q(s) { return view.querySelector(s); }
     function takeById(tid) { return D.takes.filter(function (t) { return t.id === tid; })[0]; }
@@ -1127,7 +1247,7 @@
         '<h1>' + esc(D.video.title) + '</h1><span class="ed-save" data-save></span>' +
         '<button class="ui-btn sm" data-undo title="Undo (Ctrl+Z)">' + UI.icon('undo') + '</button><button class="ui-btn sm" data-redo title="Redo (Ctrl+Shift+Z)">' + UI.icon('redo') + '</button>' +
         '<button class="ui-btn primary" data-export>' + UI.icon('download') + 'Export</button></div>' +
-        '<div class="ed-main"><div><div class="ed-stage"><div class="cv"><canvas data-cv width="960" height="540"></canvas></div><div data-pbar></div></div></div>' +
+        '<div class="ed-main"><div><div class="ed-stage"><div class="cv"><canvas data-cv width="960" height="540"></canvas><div class="ed-safe" data-safe hidden aria-hidden="true"></div></div><div data-pbar></div></div></div>' +
         '<div class="ui-card ed-insp"><nav class="ui-tabs">' + [['scene', 'Scene'], ['style', 'Style'], ['look', 'Look'], ['frames', 'Frames'], ['text', 'Text'], ['words', 'Words'], ['audio', 'Audio']].map(function (t) {
           return '<button data-tab="' + t[0] + '" class="' + (tab === t[0] ? 'on' : '') + '">' + t[1] + '</button>'; }).join('') + '</nav><div class="ed-pane" data-pane></div></div></div>' +
         '<div class="ui-card ed-tl"><div class="ed-tools"><button class="ui-btn sm" data-addtake>' + UI.icon('film') + '<span class="lbl">Add take</span></button>' +
@@ -1142,6 +1262,7 @@
       player = VB.Player(cv, { onTime: function (o) { if (bar) bar.update(o); drawTrack(); wordsNow(); }, onState: function (p) { if (bar) bar.state(p); } });
       bar = VB.playerBar(player, { full: true, canvas: cv }); q('[data-pbar]').appendChild(bar.el);
       cv.addEventListener('click', function () { player.toggle(); });
+      if (window.ResizeObserver) { if (safeRO) safeRO.disconnect(); safeRO = new ResizeObserver(function () { placeSafe(); }); safeRO.observe(cv); }
       if (music) player.setMusic(music.blob);
       rebuild(true);
       player.seek(Math.min(0.9, plan.outDur));
@@ -1152,7 +1273,7 @@
       if (player) player.setPlan(plan, !first);
       if (bar) { bar.update(player.o); bar.marks(VB.chapters(plan)); }
       sel = clamp(sel, 0, Math.max(0, E.scenes.length - 1));
-      drawStrip(); drawPane(); drawTrackWrap();
+      drawStrip(); drawPane(); drawTrackWrap(); placeSafe();
       var tot = q('[data-total]'); if (tot) tot.textContent = UI.plural(E.scenes.length, 'scene') + ' · ' + VB.fmtTime(plan.outDur);
     }
     /* Every change goes through here: undo history, redraw, autosave. */
@@ -1264,7 +1385,7 @@
       VB.wordsOf(t).forEach(function (w) { g.fillStyle = VB.isFiller(w[2]) ? '#e6a700' : (dark ? '#4d6f8f' : '#a8c4dd'); g.fillRect(X(w[0]), wy + wh + 2, Math.max(1, X(w[1]) - X(w[0]) - 1), 2); });
       (t.clicks || []).forEach(function (ck) { g.fillStyle = '#e62117'; g.beginPath(); g.arc(X(ck[0]), H - 7, 3, 0, 7); g.fill(); });
       (t.markers || []).forEach(function (m) {
-        var x = X(m[0]); g.strokeStyle = m[1] === 'highlight' ? '#e6a700' : '#e62117'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x, 18); g.lineTo(x, H - 14); g.stroke();
+        var x = X(m[0]); g.strokeStyle = m[1] === 'highlight' ? '#e6a700' : m[1] === 'oops' ? '#7c4dff' : '#e62117'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x, 18); g.lineTo(x, H - 14); g.stroke();
         g.fillStyle = g.strokeStyle; g.beginPath(); g.moveTo(x, 18); g.lineTo(x + 9, 22); g.lineTo(x, 26); g.fill();
         g.font = '600 10px Roboto, Arial'; g.textAlign = 'left'; g.fillStyle = dark ? '#ddd' : '#333'; g.fillText(m[2] || '', x + 11, 26);
       });
@@ -1401,7 +1522,7 @@
     }
     function paneStyle() {
       var c = E.cam;
-      return '<div><h4>Size</h4>' + seg('aspect', [['16:9', '16:9 YouTube'], ['9:16', '9:16 Shorts/Reels'], ['1:1', '1:1 Square']], E.aspect) + '</div>' +
+      return '<div><h4>Size</h4>' + seg('aspect', [['16:9', '16:9 YouTube'], ['9:16', '9:16 Shorts/Reels'], ['1:1', '1:1 Square']], E.aspect) + '</div>' + platformBox() +
         '<label class="ui-field"><span>Layout</span><select data-f="layout">' + Object.keys(VB.LAYOUTS).map(function (k) { return '<option value="' + k + '"' + (E.layout === k ? ' selected' : '') + '>' + VB.LAYOUTS[k][0] + ': ' + VB.LAYOUTS[k][1] + '</option>'; }).join('') + '</select></label>' +
         '<div><h4>Background</h4><div class="ed-bgs">' + Object.keys(VB.BGS).map(function (k) {
           var b = VB.BGS[k], bg = b ? 'linear-gradient(135deg,' + b[0] + ',' + b[1] + ')' : 'repeating-linear-gradient(45deg,#666 0 4px,#999 4px 8px)';
@@ -1656,7 +1777,8 @@
           (t.sample ? '' : '<label class="ui-field"><span>Speech model</span><select data-asrmodel>' + models + '</select></label>') +
           '<div class="ui-row"><button class="ui-btn primary sm" data-asr' + (src && src.missing ? ' disabled' : '') + '>' + UI.icon('text') + 'Write captions</button>' +
           (D.video.script && !t.sample ? '<button class="ui-btn sm" data-align title="Quick and approximate: spreads your script over the parts where you speak">Use my script instead</button>' : '') + '</div>' +
-          (t.sample ? '' : '<p class="small muted" style="margin:0">The first time, your browser downloads the speech model (once, from Hugging Face). Your recording never leaves this computer.</p>') + '</div>';
+          (t.sample ? '' : '<p class="small muted" style="margin:0">The first time, your browser downloads the speech model (once, from Hugging Face). Your recording never leaves this computer.</p>') +
+          (oopsCount(t) ? '<p class="small" style="margin:0">↺ ' + UI.plural(oopsCount(t), 'oops mark') + ' in this take. Write captions, then <b>Find retakes</b> cuts those flubs for you.</p>' : '') + '</div>';
       }
       var fillers = VB.fillerCuts(ws, s['in'], s.out).filter(function (cu) { return !(s.cuts || []).some(function (x) { return cu[0] >= x[0] - 0.01 && cu[1] <= x[1] + 0.01; }); }).length;
       var html = '', prevEnd = null;
@@ -1670,8 +1792,31 @@
         '<div class="ed-words" data-words style="margin-top:6px">' + html + '</div>' +
         '<div class="ed-wbar" data-wbar style="margin-top:6px">' + wbar(ws) + '</div>' +
         '<div class="ui-row" style="margin-top:6px"><button class="ui-btn sm" data-fillers' + (fillers ? '' : ' disabled') + '>' + UI.icon('scissors') + 'Remove filler words' + (fillers ? ' (' + fillers + ')' : '') + '</button>' +
+          '<button class="ui-btn sm" data-retakes title="Finds lines you said more than once and keeps the last try' + (oopsCount(t) ? ', plus your oops marks' : '') + '">' + UI.icon('refresh') + 'Find retakes' + (oopsCount(t) ? ' (↺ ' + oopsCount(t) + ')' : '') + '</button>' +
           '<button class="ui-btn sm" data-srt title="Subtitles for YouTube (matches this edit)">' + UI.icon('download') + '.srt</button>' +
-          '<button class="ui-btn sm ghost" data-asr>' + UI.icon('undo') + 'Write again</button><button class="ui-btn sm ghost danger" data-wdel aria-label="Delete the words">' + UI.icon('trash') + '</button></div></div>';
+          '<button class="ui-btn sm ghost" data-asr>' + UI.icon('undo') + 'Write again</button><button class="ui-btn sm ghost danger" data-wdel aria-label="Delete the words">' + UI.icon('trash') + '</button></div>' +
+        retakeList(s, t, ws) + '</div>';
+    }
+    /* Retake finder (VB.findRetakes in vb-words.js): a list to tick, then one cut per retake (undo/restore like any cut). */
+    function oopsCount(t) { return ((t && t.markers) || []).filter(function (m) { return m[1] === 'oops'; }).length; }
+    function retakeList(s, t, ws) {
+      if (!retakes || retakes.key !== t.id + ':' + sel) return '';
+      var items = retakes.items.filter(function (f) { return ws.slice(f.a, f.b + 1).some(function (w) { return !wordState(s, w); }); });
+      retakes.view = items;
+      var head = '<div class="ui-row between"><h4 style="margin:0">Retakes' + (items.length ? ' (' + items.length + ')' : '') + '</h4><button class="ui-btn sm ghost" data-rtclose aria-label="Close the retake list">✕</button></div>';
+      if (!items.length) {
+        return '<div class="ed-rt" data-rtbox>' + head + '<p class="small muted" style="margin:0">' + (retakes.items.length ? 'All retakes in this take are cut.' : 'No repeated lines found in this take.') +
+          ' Tip: when you flub a line while recording, press <span class="vb-kbd">O</span> and say it again; this finder then cuts the flub for you.</p></div>';
+      }
+      function words(i, j) { return ws.slice(i, j + 1).map(function (w) { return w[2]; }).join(' '); }
+      return '<div class="ed-rt" data-rtbox>' + head + '<p class="small muted" style="margin:0">Each line you said again: the earlier tries are ticked to cut, the last try stays. Play one to check it.</p>' +
+        items.map(function (f, i) {
+          var cut = words(f.a, f.b), kept = words(f.kept, Math.min(ws.length - 1, f.kept + 7));
+          return '<div class="ed-rtrow"><label class="ui-check"><input type="checkbox" data-rt="' + i + '" checked><span><s>' + esc(cut.length > 120 ? cut.slice(0, 118) + '…' : cut) + '</s>' +
+            '<small>' + (f.why === 'oops' ? '↺ oops mark' : UI.plural(f.n + 1, 'try', 'tries')) + ' · ' + VB.fmtTime(ws[f.a][0]) + ' · keeps “' + esc(kept) + '…”</small></span></label>' +
+            '<button class="ui-btn sm ghost" data-rtplay="' + i + '" aria-label="Play this retake">' + UI.icon('play') + '</button></div>';
+        }).join('') +
+        '<div class="ui-row"><button class="ui-btn sm primary" data-rtcut>' + UI.icon('scissors') + 'Cut ticked</button><span class="small muted">Ctrl+Z undoes it; click a cut on the track to restore it.</span></div></div>';
     }
     function wbar(ws) {
       if (!wsel) return '<span class="small muted">Click a word to jump there. Shift-click another to select the words between, then cut them (or press Delete).</span>';
@@ -2077,6 +2222,27 @@
         };
         return;
       }
+      if (t.closest('[data-retakes]')) {
+        var scR = scene(), tkR = takeById(scR.take);
+        retakes = { key: tkR.id + ':' + sel, items: VB.findRetakes(VB.wordsOf(tkR), tkR.markers, scR['in'], scR.out) };
+        drawPane();
+        var boxR = q('[data-rtbox]'); if (boxR && boxR.scrollIntoView) boxR.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (t.closest('[data-rtclose]')) { retakes = null; drawPane(); return; }
+      if ((b = t.closest('[data-rtplay]'))) {
+        var fP = retakes && retakes.view && retakes.view[+b.getAttribute('data-rtplay')], scP = scene();
+        if (fP) { seekSrc(Math.max(scP['in'], VB.wordsOf(takeById(scP.take))[fP.a][0] - 0.3)); if (!player.playing) player.play(); }
+        return;
+      }
+      if (t.closest('[data-rtcut]')) {
+        var scC = scene(), wsC = VB.wordsOf(takeById(scC.take)), picked = [];
+        view.querySelectorAll('[data-rt]').forEach(function (cb) { var f = retakes.view[+cb.getAttribute('data-rt')]; if (cb.checked && f) picked.push(VB.wordCut(wsC, f.a, f.b)); });
+        if (!picked.length) { UI.toast('Tick the retakes to cut first'); return; }
+        change(function () { scC.cuts = VB.mergeCuts((scC.cuts || []).concat(picked), scC['in'], scC.out); });
+        UI.toast('Cut ' + UI.plural(picked.length, 'retake') + '. The last try of each line stays.', 'ok');
+        return;
+      }
       if (t.closest('[data-fillers]')) {
         var sc3 = scene(), fc = VB.fillerCuts(VB.wordsOf(takeById(sc3.take)), sc3['in'], sc3.out);
         change(function () { sc3.cuts = VB.mergeCuts((sc3.cuts || []).concat(fc), sc3['in'], sc3.out); });
@@ -2112,6 +2278,20 @@
       if ((b = t.closest('[data-move]'))) { var d = +b.getAttribute('data-move'); change(function () { var x = E.scenes.splice(sel, 1)[0]; sel = clamp(sel + d, 0, E.scenes.length); E.scenes.splice(sel, 0, x); }); return; }
       if (t.closest('[data-dup]')) { change(function () { var x = JSON.parse(JSON.stringify(scene())); x.id = VB.sceneId(); E.scenes.splice(sel + 1, 0, x); sel++; }); return; }
       if (t.closest('[data-delsc]')) { change(function () { E.scenes.splice(sel, 1); sel = Math.max(0, sel - 1); }); return; }
+      if ((b = t.closest('[data-safe-set]'))) { safeZone = b.getAttribute('data-safe-set'); UI.store.set('ed.safe', safeZone); placeSafe(); drawPane(); return; }
+      if ((b = t.closest('[data-safe-fix]'))) {
+        var fx = b.getAttribute('data-safe-fix');
+        change(function () {
+          if (fx === 'captions') E.captions.pos = 'bottom';
+          if (fx === 'texts') E.scenes.forEach(function (s) { (s.texts || []).forEach(function (x) { if ((x.pos || 'bl')[0] === 'b') x.pos = 'c'; }); });
+          if (fx === 'frames') (E.frames || []).forEach(function (f) {
+            var st = (VB.FRAME_STYLES || []).filter(function (x) { return x.key === f.style; })[0], to = 't' + (f.pos || 'bl')[1];
+            if ((f.pos || 'bl')[0] === 'b' && (!st || !st.pos || st.pos.indexOf(to) >= 0)) f.pos = to;
+          });
+        });
+        UI.toast('Moved out of the covered area', 'ok');
+        return;
+      }
       if ((b = t.closest('[data-set]'))) {
         var name = b.getAttribute('data-set'), v = b.getAttribute('data-v');
         if (name === 'newtext') { addTextAt(v); return; }
@@ -2256,7 +2436,7 @@
       else if ((e.key || '').toLowerCase() === 's') split();
     }
     document.addEventListener('keydown', onKey);
-    function onResize() { drawTrack(); }
+    function onResize() { drawTrack(); placeSafe(); }
     window.addEventListener('resize', onResize);
     VB._editPage = { plan: function () { return plan; }, edit: function () { return E; }, player: function () { return player; }, select: selectScene, save: save,
       tab: function (k) { tab = k; drawPane(); }, takes: function () { return D.takes; }, music: function () { return music; },
@@ -2266,6 +2446,7 @@
       destroy: function () {
         dead = true; document.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize);
         if (dirty) save();
+        if (safeRO) safeRO.disconnect();
         if (player) player.destroy(); VB.releaseSources(); VB._editPage = null;
       }
     };

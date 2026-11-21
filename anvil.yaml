@@ -727,19 +727,19 @@ native_deps:
     <!-- Prepsto feedback panel: every "Submit feedback" link and button opens it (it is the only feedback channel). No floating button, no cookies, nothing loads until it is opened. Codes: APP_MAKER/prepsto-links.json -->
     <script src="https://prepsto.com/_/theme/widget.js" data-prepsto="6nb7x2q" data-button="false" data-label="Submit feedback" async></script>
     <link rel="stylesheet" href="_/theme/icons.css?v=4e91daff1a">
-    <link rel="stylesheet" href="_/theme/app.css?v=590c77b018">
+    <link rel="stylesheet" href="_/theme/app.css?v=48b2593835">
     <script src="_/theme/app-kit.js?v=89dadf0094"></script>
     <script src="_/theme/vb-kit.js?v=f502956bca"></script>
     <script src="_/theme/vb-core.js?v=11c6b9c524"></script>
     <script src="_/theme/vb-engine.js?v=8bf666520c"></script>
-    <script src="_/theme/vb-recorder.js?v=0ce257f817"></script>
+    <script src="_/theme/vb-recorder.js?v=7b85d75c25"></script>
     <script src="_/theme/vb-templates.js?v=5f27c5ecf9"></script>
-    <script src="_/theme/vb-words.js?v=cccdb76888"></script>
+    <script src="_/theme/vb-words.js?v=92e869e35a"></script>
     <script src="_/theme/vb-youtube.js?v=048789abc2"></script>
     <script src="_/theme/vb-write.js?v=9f0c5baaf1"></script>
     <script src="_/theme/vb-sound.js?v=c90393f082"></script>
     <script src="_/theme/vb-studio.js?v=d8d7537079"></script>
-    <script src="_/theme/vb-screens.js?v=ac292ca3d3"></script>
+    <script src="_/theme/vb-screens.js?v=ca41976b2d"></script>
 package_name: VideoBlog_Buddy
 runtime_options:
   client_version: '3'

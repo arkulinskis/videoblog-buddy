@@ -212,6 +212,67 @@
     });
     return out;
   };
+  /* Retake finder (2026-11-20): repeated tries at the same line, keeping the last one, plus "oops" marks pressed while
+     recording (key O). Rule-based, on this computer: phrases split at pauses (0.55 s), sentence ends and oops marks;
+     an earlier phrase is a retake when a phrase up to 3 later (within 40 s) starts with the same words (a false start or
+     a restart) or shares most of its word pairs. The cut runs from the earlier try to the start of the kept one, so the
+     "sorry, again" in between goes too. An oops mark cuts the phrase it interrupted. -> [{a, b, kept, n, why}]
+     (a..b = word indexes to cut; kept = word index the kept try starts at; n = tries cut; why: 'repeat' | 'oops').
+     a, b (seconds) limit it to the scene's in/out. */
+  VB.findRetakes = function (words, markers, a, b) {
+    words = words || []; a = a || 0; b = b == null ? 1e9 : b;
+    var END = /[.?!…]["')\]]*$/;
+    var oops = (markers || []).filter(function (m) { return m[1] === 'oops'; }).map(function (m) { return m[0]; });
+    var phrases = [], cur = null;
+    words.forEach(function (w, i) {
+      if (w[0] < a - 0.01 || w[1] > b + 0.01) { cur = null; return; }
+      var prev = words[i - 1];
+      var brk = !cur || !prev || w[0] - prev[1] >= 0.55 || END.test(prev[2]) ||
+        oops.some(function (t) { return t > prev[0] && t <= w[0] + 0.05; });
+      if (brk) { cur = { i0: i, i1: i, toks: [] }; phrases.push(cur); }
+      cur.i1 = i;
+      var p = VB.plainWord(w[2]); if (p && !VB.isFiller(w[2])) cur.toks.push(p);
+    });
+    function pairs(tk) { var o = {}; for (var k = 0; k < tk.length - 1; k++) o[tk[k] + ' ' + tk[k + 1]] = 1; return o; }
+    function same(P, Q) {
+      var p = P.toks, qq = Q.toks, k = 0;
+      if (p.length < 2 || qq.length < 2) return false;
+      while (k < p.length && k < qq.length && p[k] === qq[k]) k++;
+      if (k >= 3 || (k >= 2 && k === p.length)) return true;
+      if (p.length >= 4) {
+        var pq = pairs(qq), keys = Object.keys(pairs(p)), hit = keys.filter(function (x) { return pq[x]; }).length;
+        if (hit / keys.length >= 0.6) return true;
+      }
+      return false;
+    }
+    var found = [];
+    phrases.forEach(function (P, i) {
+      for (var j = i + 1; j < phrases.length && j <= i + 3; j++) {
+        var Q = phrases[j];
+        if (words[Q.i0][0] - words[P.i0][0] > 40) break;
+        if (same(P, Q)) { found.push({ a: P.i0, b: Q.i0 - 1, kept: Q.i0, n: 1, why: 'repeat' }); return; }
+      }
+    });
+    oops.forEach(function (tm) {
+      if (tm < a || tm > b) return;
+      var k = -1;
+      for (var x = 0; x < words.length; x++) { if (words[x][0] < tm) k = x; else break; }
+      if (k < 0 || words[k][0] < a - 0.01) return;
+      var s = k;
+      while (s > 0 && k - s < 25 && words[s - 1][0] >= a - 0.01 && words[s][0] - words[s - 1][1] < 0.7 && !END.test(words[s - 1][2])) s--;
+      found.push({ a: s, b: k, kept: Math.min(k + 1, words.length - 1), n: 1, why: 'oops' });
+    });
+    found.sort(function (x, y) { return x.a - y.a; });
+    var out = [];
+    found.forEach(function (f) {
+      var last = out[out.length - 1];
+      if (last && f.a <= last.b + 1) {
+        last.b = Math.max(last.b, f.b); last.kept = Math.max(last.kept, f.kept); last.n += 1;
+        if (f.why === 'oops') last.why = 'oops';
+      } else out.push(Object.assign({}, f));
+    });
+    return out.filter(function (f) { return f.b >= f.a; });
+  };
   /* The cut that removes words i..j, eating into the gaps on both sides but never the neighbours. */
   VB.wordCut = function (words, i, j) {
     var a = words[i], b = words[j], prev = words[i - 1], next = words[j + 1];

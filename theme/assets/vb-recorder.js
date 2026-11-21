@@ -321,10 +321,10 @@
       VB.pip.onAction = opts.onAction; VB.pip.onClose = opts.onClose;
       var d = w.document;
       d.body.innerHTML = '<div class="w"><div class="top"><span class="dot"></span><span class="time">0:00</span>' +
-        '<button data-a="pause" title="Pause (P)">❚❚</button><button data-a="mark" title="Chapter marker (M)">⚑</button><button class="stop" data-a="stop" title="Stop (S)">■ Stop</button></div>' +
+        '<button data-a="pause" title="Pause (P)">❚❚</button><button data-a="mark" title="Chapter marker (M)">⚑</button><button data-a="oops" title="Oops: flubbed it, saying it again (O)">↺</button><button class="stop" data-a="stop" title="Stop (S)">■ Stop</button></div>' +
         (opts.cam ? '<div class="cam"><video autoplay muted playsinline></video><div class="cd" hidden></div></div>' : '<div class="cam" style="min-height:70px"><div class="cd" hidden></div></div>') +
         '<div class="pr" ' + (opts.script ? '' : 'hidden') + '></div><div class="msg" data-msg hidden></div>' +
-        '<div class="hint">P pause · M marker · S stop · ↑↓ prompter</div></div>';
+        '<div class="hint">P pause · M marker · O oops · S stop · ↑↓ prompter</div></div>';
       if (opts.cam) { var v = d.querySelector('video'); v.srcObject = opts.cam; v.play()['catch'](function () {}); }
       if (opts.script) VB.pip.prompter = VB.Prompter(d.querySelector('.pr'), opts.script, { speed: opts.speed || 32, fontSize: 13 });
       d.body.onclick = function (e) { var b = e.target.closest('[data-a]'); if (b && VB.pip.onAction) VB.pip.onAction(b.getAttribute('data-a')); };
@@ -332,6 +332,7 @@
         var k = (e.key || '').toLowerCase();
         if (k === 'p' && VB.pip.onAction) VB.pip.onAction('pause');
         if (k === 'm' && VB.pip.onAction) VB.pip.onAction('mark');
+        if (k === 'o' && VB.pip.onAction) VB.pip.onAction('oops');
         if (k === 's' && VB.pip.onAction) VB.pip.onAction('stop');
         if (VB.pip.prompter && (k === 'arrowup' || k === 'arrowdown')) VB.pip.prompter.nudge(k === 'arrowup' ? -40 : 40);
       };
